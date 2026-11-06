@@ -29,6 +29,8 @@ WEBGL_FLAGS = [
 
 
 def find_browser():
+    if os.environ.get("NO_BROWSER"):  # CI: the pages are checked on a developer's machine
+        return None
     return next((p for p in CANDIDATES if p and os.path.isfile(p)), None)
 
 
