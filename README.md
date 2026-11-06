@@ -46,7 +46,7 @@ Every suite prints one line. `test_library` and `test_live_library` need a real 
 
 - Every page and API call needs a signed-in session; accounts are invite-only (`member` and `admin`, with per-person permissions). Passwords are Argon2id hashes.
 - Strong defaults: CSRF tokens, a per-request content security policy, bound SQL parameters only, outbound fetches limited to public hosts, uploads checked, files moved to a trash folder instead of deleted.
-- Server updates install only if signed with the developer's Ed25519 key (`update_pubkey.txt`, empty until the developer adds theirs); a failed update rolls back by itself.
+- Server updates install only if signed with the developer's Ed25519 key (the public half is in `update_pubkey.txt`; the private half stays with the developer); a failed update rolls back by itself.
 - The server's network identity (its certificate authority and a short fingerprint) is shown on the admin Updates page so apps can check it the first time they connect.
 - Never put `.env`, `certs/*.key` or `data/` in a public place.
 - Running it safely: [docs/hardening.md](docs/hardening.md). To report a security problem privately, see [SECURITY.md](SECURITY.md).
