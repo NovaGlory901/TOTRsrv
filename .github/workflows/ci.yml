@@ -32,7 +32,7 @@ jobs:
           for t in tests/test_*.py; do
             n=$(basename "$t" .py)
             case "$n" in test_library|test_live_library) echo "SKIP $n"; continue;; esac
-            out=$(python "$t" 2>&1); rc=$?
+            out=$(python "$t" 2>&1) && rc=0 || rc=$?
             if [ $rc -ne 0 ] || echo "$out" | grep -q '^BAD'; then
               echo "FAIL $n"; echo "$out" | tail -30; fail=1
             else
