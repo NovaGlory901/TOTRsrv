@@ -1,0 +1,53 @@
+# TOTR server. Written by tools/install_wizard.py; the @...@ parts are filled in. `journalctl -u totr` shows its log.
+[Unit]
+Description=TOTR server (TV on the Radio)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+WorkingDirectory=@PREFIX@/current
+# Everything that must survive an update lives in the state folder; the code is swapped by moving the `current` link.
+Environment=TOTR_STATE_DIR=@PREFIX@/state
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@PREFIX@/current/.venv/bin/python main.py
+Restart=always
+RestartSec=3
+
+# The service can write only to its state folder (and the music / picture folders), nowhere else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@PREFIX@/state@EXTRA_PATHS@
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+# More (docs/threat-model.md, "Break-it run on the server"). The real server ran under these settings as a user service on a test machine (streaming, a 300 MB upload, offers, join); not yet run as a system service.
+# UMask: new files are not readable by other users on this machine (the person who installed can still read them through the group).
+UMask=0027
+PrivateDevices=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictRealtime=true
+RemoveIPC=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @swap @reboot @raw-io @obsolete @module @debug @cpu-emulation @clock
+MemoryDenyWriteExecute=true
+# A slow or idle connection holds a file handle for as long as it likes; the default limit of 1024 is used up by about a thousand of them and the server then stops answering.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

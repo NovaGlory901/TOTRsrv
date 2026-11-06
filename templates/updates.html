@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Updates | TOTR</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.steps {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+}
+.steps li {
+  padding: 3px 0;
+}
+.big {
+  font-size: 26px;
+  margin: 0 0 8px;
+}
+pre {
+  background: var(--field-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 0 0 12px;
+  text-shadow: none;
+  color: var(--fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+</style>
+</head>
+<body>
+<div class="screen">
+{{HEADER}}
+<main>
+  <h1>Updates</h1>
+  <p class="muted">Keeps this server up to date with releases from the developer. Nothing installs unless it carries the developer's signature, and a bad update puts the old version back by itself.</p>
+
+  <div class="panel">
+    <h2>This server</h2>
+    <table class="checks" id="serverInfo"></table>
+  </div>
+
+  <div id="result"></div>
+  <div id="action"></div>
+</main>
+{{FOOTER}}
+</div>
+<script>
+const STEPS = [
+  'looking for the release',
+  'downloading it',
+  'checking the signature and the checksum',
+  'the update service checks it again',
+  'unpacking the new version and its packages',
+  'the database: backed up and brought forward',
+  'switching to the new version and waiting for it to answer',
+];
+const SERVICE_STEP = { checking: 3, unpacking: 4, database: 5, migrating: 5, switching: 6 };
+const FETCH_STEP = { checking: 0, downloading: 1, verifying: 2, waiting: 3 };
+let busy = false,
+  timer = null,
+  lastOk = true;
+
+const say = (tag, cls, text) => el(tag, cls, text);
+const mark = (ok, text) => say('span', ok ? 'ok' : 'bad', (ok ? '✓ ' : '✗ ') + text);
+const when = iso => (iso ? new Date(iso).toLocaleString() : '');
+const mb = n =>
+  n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+function panel(title, ...children) {
+  const p = say('div', 'panel');
+  p.append(say('h2', '', title), ...children);
+  return p;
+}
+function row(table, label, value) {
+  const tr = say('tr'),
+    a = say('td', '', label),
+    b = say('td');
+  if (value instanceof Node) b.append(value);
+  else b.textContent = value;
+  tr.append(a, b);
+  table.append(tr);
+}
+function button(text, onClick) {
+  const b = say('button', '', text);
+  b.type = 'button';
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+// What is going on, in one word, from what the web app and the update service each report.
+function situation(o) {
+  const svc = o.service || {},
+    fetching = o.fetching || {};
+  const finished =
+    ['done', 'rolled_back', 'failed', 'needs_db_admin'].includes(svc.stage) &&
+    (!fetching.release || svc.release === fetching.release);
+  if (svc.stage === 'working') return 'working';
+  if (['checking', 'downloading', 'verifying'].includes(fetching.stage)) return 'working';
+  if (fetching.stage === 'waiting' && !finished) return 'working';
+  if (svc.stage === 'needs_db_admin') return 'needs_db_admin';
+  if (svc.stage === 'rolled_back') return 'rolled_back';
+  if (svc.stage === 'failed') return 'failed';
+  return 'idle';
+}
+
+function currentStep(o) {
+  const svc = o.service || {},
+    fetching = o.fetching || {};
+  if (svc.stage === 'working' && svc.step in SERVICE_STEP) return SERVICE_STEP[svc.step];
+  return FETCH_STEP[fetching.stage] ?? 0;
+}
+
+function renderServer(o) {
+  const t = $('serverInfo');
+  t.replaceChildren();
+  row(t, 'installed', 'version ' + o.current);
+  row(t, 'updates come from', o.repo ? 'github.com/' + o.repo : mark(false, 'not set'));
+  row(
+    t,
+    "developer's key",
+    o.key
+      ? (() => {
+          const s = say('span');
+          s.append(mark(true, 'set '), say('span', 'muted', '(fingerprint ' + o.key + ')'));
+          return s;
+        })()
+      : mark(false, 'none'),
+  );
+  if (o.ca)
+    row(
+      t,
+      'network identity',
+      (() => {
+        const s = say('span');
+        s.append(
+          say('span', '', o.ca),
+          say('span', 'muted', ' (the code apps ask a new user to check)'),
+        );
+        return s;
+      })(),
+    );
+  if (o.checked && o.checked.checked_at) row(t, 'last checked', when(o.checked.checked_at));
+  else if (o.configured) row(t, 'last checked', 'not since this server started');
+  const svc = o.service || {};
+  if (svc.stage === 'done')
+    row(t, 'last update', (svc.from || '?') + ' → ' + svc.release + ', ' + when(svc.at));
+  if (o.configured) row(t, 'checking for updates', 'only when you press the button');
+}
+
+function renderNotSet(o) {
+  const t = say('table', 'checks');
+  row(
+    t,
+    'where updates come from',
+    o.repo
+      ? mark(true, 'github.com/' + o.repo)
+      : (() => {
+          const s = say('span');
+          s.append(
+            mark(false, 'not set '),
+            say('span', 'muted', 'add UPDATE_REPO=owner/name to .env and restart'),
+          );
+          return s;
+        })(),
+  );
+  row(
+    t,
+    "developer's key",
+    o.key
+      ? mark(true, 'set')
+      : (() => {
+          const s = say('span');
+          s.append(
+            mark(false, 'none '),
+            say(
+              'span',
+              'muted',
+              'this copy of TOTR has no update_pubkey.txt, so it could not tell a real update from a fake one',
+            ),
+          );
+          return s;
+        })(),
+  );
+  return panel(
+    'Updates are not set up on this server',
+    t,
+    say(
+      'p',
+      'muted',
+      'Until both are set, TOTR never downloads or installs anything. Details: docs/updates.md.',
+    ),
+  );
+}
+
+function renderWorking(o) {
+  const svc = o.service || {},
+    fetching = o.fetching || {},
+    at = currentStep(o);
+  const release = (svc.stage === 'working' && svc.release) || fetching.release || '';
+  const list = say('ul', 'steps');
+  STEPS.forEach((text, i) => {
+    const li = say(
+      'li',
+      i < at ? 'ok' : i === at ? '' : 'muted',
+      (i < at ? '✓ ' : i === at ? '> ' : '· ') + text,
+    );
+    list.append(li);
+  });
+  const p = panel('Installing ' + release, list);
+  if (fetching.stage === 'downloading' && fetching.size)
+    p.append(say('p', 'muted', 'About ' + mb(fetching.size) + '.'));
+  p.append(
+    say(
+      'p',
+      'muted',
+      'This page updates by itself. You can leave it; the update carries on. This page may go quiet for a moment when the server restarts.',
+    ),
+  );
+  return p;
+}
+
+function logBox(svc) {
+  return svc.log && svc.log.length
+    ? (() => {
+        const pre = say('pre', '', svc.log.join('\n'));
+        return pre;
+      })()
+    : null;
+}
+
+function renderFinished(o, sit) {
+  const svc = o.service || {};
+  if (sit === 'needs_db_admin') {
+    const p = panel('Version ' + svc.release + ' is downloaded and checked, and needs your help');
+    p.append(
+      say(
+        'p',
+        'warn',
+        svc.message || 'This update changes the layout of your PostgreSQL database.',
+      ),
+    );
+    p.append(
+      say(
+        'p',
+        '',
+        'Take a backup of the database first, then run this on the server as an administrator. It asks for a database login that may create tables, uses it once and forgets it:',
+      ),
+    );
+    p.append(
+      say(
+        'pre',
+        '',
+        svc.command || 'sudo <install folder>/current/deploy/apply-update.py --continue',
+      ),
+    );
+    p.append(
+      say(
+        'p',
+        'muted',
+        'Not now? Nothing is lost: the downloaded release waits, and ' +
+          o.current +
+          ' keeps running.',
+      ),
+    );
+    return p;
+  }
+  const rolled = sit === 'rolled_back';
+  const p = panel(
+    rolled ? 'The update did not work, and the old version is back' : 'The update did not start',
+  );
+  p.append(say('p', 'bad', '✗ ' + (svc.message || 'it failed')));
+  if (rolled)
+    p.append(
+      say(
+        'p',
+        'ok',
+        '✓ Back on ' +
+          (svc.from || o.current) +
+          '. If the update had changed the database, it was restored from the backup made before.',
+      ),
+    );
+  else p.append(say('p', 'ok', '✓ Nothing was changed: ' + o.current + ' is still running.'));
+  const log = logBox(svc);
+  if (log) {
+    p.append(say('p', 'big', 'What the update service said'), log);
+  }
+  if (rolled)
+    p.append(
+      say(
+        'p',
+        'muted',
+        'The failed copy is kept aside so the developer can see why. Log: journalctl -u totr-update.',
+      ),
+    );
+  return p;
+}
+
+function renderCheck(o) {
+  const c = o.checked || {};
+  if (c.problem && !c.newer) {
+    const p = panel('Could not check for updates', say('p', 'bad', '✗ ' + c.problem));
+    p.append(
+      say('p', 'muted', 'Nothing is wrong with your server. Try again later.'),
+      button('Check again', () => act('check')),
+    );
+    return p;
+  }
+  if (c.newer) {
+    const p = panel('Version ' + c.latest + ' is ready');
+    const bits = [];
+    if (c.size) bits.push(mb(c.size));
+    bits.push('signed by the developer ✓');
+    if (c.created) bits.push('released ' + c.created.slice(0, 10));
+    p.append(say('p', 'muted', bits.join(' · ')));
+    if (c.notes) {
+      p.append(say('p', 'big', 'What changed'), say('pre', '', c.notes));
+    }
+    p.append(
+      say(
+        'p',
+        'warn',
+        'Installing restarts the server, which takes about a minute. Anyone listening is cut off and has to press play again. ' +
+          (o.engine === 'postgres'
+            ? 'This server uses PostgreSQL: take your own backup first (TOTR cannot back it up for you).'
+            : 'Your database is backed up first.'),
+      ),
+    );
+    p.append(
+      button('Install ' + c.latest, () => {
+        if (
+          confirm(
+            'Install ' +
+              c.latest +
+              '? The server restarts and anyone listening is cut off for about a minute.',
+          )
+        )
+          act('install');
+      }),
+      document.createTextNode(' '),
+      button('Check again', () => act('check')),
+    );
+    return p;
+  }
+  const p = panel(c.latest ? 'You have the newest version' : 'No update found');
+  p.append(
+    say(
+      'p',
+      'ok',
+      c.latest
+        ? '✓ ' + o.current + ' is the newest release.'
+        : '✓ No signed release has been published yet.',
+    ),
+    button('Check now', () => act('check')),
+  );
+  return p;
+}
+
+function render(o) {
+  renderServer(o);
+  const result = $('result'),
+    action = $('action');
+  result.replaceChildren();
+  action.replaceChildren();
+  if (!o.configured) {
+    action.append(renderNotSet(o));
+    return 'idle';
+  }
+  const sit = situation(o);
+  if (sit === 'working') {
+    action.append(renderWorking(o));
+    return 'working';
+  }
+  if (['needs_db_admin', 'rolled_back', 'failed'].includes(sit))
+    result.append(renderFinished(o, sit));
+  action.append(renderCheck(o));
+  return sit;
+}
+
+async function load() {
+  clearTimeout(timer);
+  let o = null;
+  try {
+    const r = await apiFetch('/api/admin/updates');
+    if (r.ok) o = await r.json();
+  } catch {
+    /* the server may be restarting */
+  }
+  let state = 'idle';
+  if (o) {
+    lastOk = true;
+    state = render(o);
+  } else {
+    if (lastOk) {
+      $('action').replaceChildren(
+        panel(
+          'Waiting for the server',
+          say('p', 'muted', 'The server is restarting. This page reconnects by itself.'),
+        ),
+      );
+    }
+    lastOk = false;
+    state = 'working';
+  }
+  timer = setTimeout(load, state === 'working' ? 3000 : 30000);
+}
+
+async function act(what) {
+  if (busy) return;
+  busy = true;
+  try {
+    const r = await apiFetch('/api/admin/updates/' + what, { method: 'POST' });
+    if (!r.ok) {
+      let m = 'That did not work.';
+      try {
+        m = (await r.json()).detail || m;
+      } catch {
+        /* keep the generic message */
+      }
+      $('result').replaceChildren(panel('Not started', say('p', 'bad', '✗ ' + m)));
+    }
+  } catch {
+    $('result').replaceChildren(
+      panel('Not started', say('p', 'bad', '✗ Could not reach the server.')),
+    );
+  }
+  busy = false;
+  load();
+}
+
+load();
+</script>
+</body>
+</html>

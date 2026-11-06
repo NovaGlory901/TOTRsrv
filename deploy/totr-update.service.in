@@ -1,0 +1,46 @@
+# Installs a downloaded, verified TOTR update. Written by tools/install_wizard.py; the @...@ parts are filled in. Started by totr-update.path when the web app
+# files a request. It runs as root because it replaces the installed code and restarts the server, which the web app (a locked-down user) must not be able to do.
+# Log: journalctl -u totr-update. What it did, step by step: @PREFIX@/state/updates/status.json
+[Unit]
+Description=Install a TOTR update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=@PREFIX@/current/.venv/bin/python @PREFIX@/current/deploy/apply-update.py --prefix @PREFIX@
+TimeoutStartSec=30min
+# It may change only the TOTR folder (and talk to systemd and, for the new release's packages, the internet).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=@PREFIX@
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# More. It runs as root, so it is also given only what its work needs:
+#  - capabilities: change the owner of files it unpacks (CAP_CHOWN), set their modes and times (CAP_FOWNER), and read and write files the web app's user owns
+#    (CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH, e.g. the request file and .env). Nothing else: no mounting, no network configuration, no debugging other programs.
+#  - no devices, no kernel log, clock or host name changes, no new namespaces, no realtime scheduling, no writable-and-executable memory.
+#  - network: ordinary internet and local sockets, and netlink (name lookups) for pip; systemctl reaches systemd over a local socket.
+#  - system calls: what a normal service uses plus changing owners, without mounting, swap, reboot, raw I/O, kernel modules, debugging, emulation or the clock. A call that is
+#    not allowed fails with "not permitted" (an error the updater handles and rolls back from) instead of ending the process halfway through swapping releases.
+PrivateDevices=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictRealtime=true
+RestrictNamespaces=true
+RemoveIPC=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+SystemCallFilter=@system-service @chown
+SystemCallFilter=~@mount @swap @reboot @raw-io @obsolete @module @debug @cpu-emulation @clock
+SystemCallErrorNumber=EPERM

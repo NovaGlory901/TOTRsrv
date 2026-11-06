@@ -1,0 +1,10 @@
+# Starts totr-update.service when the web app files an update request. Written by tools/install_wizard.py.
+[Unit]
+Description=Watch for a TOTR update request
+
+[Path]
+PathExists=@PREFIX@/state/updates/request.json
+Unit=totr-update.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TOTR | TV on the Radio</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="screen">
+{{HEADER}}
+<main>
+  <h1>Welcome to TOTR</h1>
+  <div class="panel">
+    <p>A little radio station in dreamspace. Everything here is music collected from the corners of the internet, kept on the home cluster.</p>
+    <p><span class="muted">library &gt;</span> <span id="stats">reading database...</span></p>
+  </div>
+
+  <div class="doors">
+    <a class="door" href="/archive"><span class="name">Music Archive</span><span class="desc">Browse by artist, then albums and loose songs.</span></a>
+    <a class="door" href="/radio"><span class="name">Radio</span><span class="desc">Tune in. Nonstop music, drifting pictures.</span></a>
+    <a class="door" id="statusDoor" href="/status" hidden><span class="name">System Status</span><span class="desc">Is everything awake? Database, files, uploads.</span></a>
+  </div>
+</main>
+{{FOOTER}}
+</div>
+<script>
+apiFetch('/api/library/stats')
+  .then(r => r.json())
+  .then(c => {
+    document.getElementById('stats').textContent =
+      `${c.artists} artists / ${c.albums} albums / ${c.tracks} tracks`;
+  })
+  .catch(() => {
+    document.getElementById('stats').textContent = 'server unreachable';
+  });
+apiFetch('/api/auth/me')
+  .then(r => r.json())
+  .then(u => {
+    if (u.permissions.includes('status')) document.getElementById('statusDoor').hidden = false;
+  })
+  .catch(() => {});
+</script>
+</body>
+</html>

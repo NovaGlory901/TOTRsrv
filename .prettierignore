@@ -1,0 +1,13 @@
+# built or generated
+static/app/
+static/fonts/
+# written in DejaVuAmp and FalseHorizons and copied here by dev/tools/sync-vendor.cjs: formatted there
+static/dejavuamp*.js
+static/dejavuamp*.css
+static/falsehorizon.js
+static/falsehorizon-core.js
+static/falsehorizon-expr.js
+static/falsehorizon-milk.js
+static/falsehorizon-presets.js
+static/falsehorizon-ui.js
+static/falsehorizon.css

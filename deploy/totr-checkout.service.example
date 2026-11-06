@@ -1,0 +1,60 @@
+# TOTR server run from a git checkout (a plain checkout, no installer), as its own locked-down user. NOT used by the installer (that has deploy/totr.service.in); this is for a
+# server started with `python main.py` from the repository folder.
+# Copy to /etc/systemd/system/totr.service, change the three paths marked CHANGE if yours differ, then:  sudo systemctl daemon-reload && sudo systemctl enable --now totr
+#
+# What it can write: the reports folder (state, logs, upload spool) and the music folder (uploads, the collector, the trash). Nothing else on the machine.
+# In a trial the real server ran under almost the same restrictions as a user service (`systemd-run --user`, private network): sign-in, streaming, a 286 MB upload,
+# offers, join requests, the Status tab all worked. That shows the filters do not stop it; it does not prove they are enforced, and it was not run as a system service,
+# with PostgreSQL. If the service does not start, `journalctl -u totr` says why; remove the SystemCallFilter lines first.
+[Unit]
+Description=TOTR server (TV on the Radio)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=totr
+Group=smbusers
+# CHANGE if the checkout is somewhere else:
+WorkingDirectory=/opt/totr/TOTRsrv
+ExecStart=/opt/totr/TOTRsrv/.venv/bin/python main.py
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+
+# --- what it may touch ---
+NoNewPrivileges=true
+ProtectSystem=strict
+# /home is hidden completely: the code and the music are under /opt and /srv. Use `ProtectHome=read-only` if your music or code is under /home.
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+# CHANGE the music folder to your MUSIC_ROOT (see `grep MUSIC_ROOT .env`). The '-' in front means "ignore if it does not exist".
+ReadWritePaths=/opt/totr/TOTRsrv/reports /srv/music -/opt/totr/TOTRsrv/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @swap @reboot @raw-io @obsolete @module @debug @cpu-emulation @clock
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+CapabilityBoundingSet=
+AmbientCapabilities=
+# New files and folders: owner and group (smbusers) may write, others nothing. Files in the music folder then stay usable for the people who use the Samba share.
+UMask=0007
+# A slow or idle connection holds a file handle for as long as it likes; the default limit of 1024 is used up by about a thousand of them.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

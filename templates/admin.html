@@ -1,0 +1,1504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin | TOTR</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.sugg {
+  margin: 0 0 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--border);
+}
+.sugg h3 {
+  font-size: 24px;
+  margin: 0 0 2px;
+  overflow-wrap: anywhere;
+}
+.sugg .meta {
+  color: var(--dim);
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+.sugg .bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  align-items: center;
+}
+.badge {
+  color: var(--on-accent);
+  background: linear-gradient(90deg, var(--pink), var(--cyan));
+  padding: 0 8px;
+  border-radius: 3px;
+  font-size: 17px;
+  margin-left: 8px;
+}
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 18px;
+}
+.meter {
+  height: 10px;
+  background: rgba(var(--lilac-rgb), 0.15);
+  border-radius: 5px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+.meter > div {
+  height: 100%;
+  background: linear-gradient(90deg, var(--pink), var(--cyan));
+  transition: width 0.4s;
+}
+.state {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.state.running {
+  border-color: var(--cyan);
+}
+.state.failed {
+  border-color: var(--bad);
+}
+.state.done {
+  border-color: var(--cyan);
+}
+label.check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--fg);
+}
+input[type='checkbox'] {
+  accent-color: var(--pink);
+  width: 18px;
+  height: 18px;
+}
+summary {
+  cursor: pointer;
+  color: var(--dim);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 2px 6px 2px 10px;
+  background: var(--panel);
+}
+.chip.off {
+  opacity: 0.55;
+}
+.chip button {
+  border: none;
+  padding: 0 6px;
+  font-size: 20px;
+  color: var(--dim);
+}
+.chip.preset {
+  cursor: pointer;
+  border-style: dashed;
+  padding: 2px 10px;
+  color: var(--dim);
+}
+.chip.preset:hover {
+  border-color: var(--pink);
+  color: var(--fg);
+}
+.inline {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.inline input[type='text'] {
+  width: auto;
+  flex: 1 1 200px;
+}
+.stage-note {
+  color: var(--dim);
+  min-height: 1.4em;
+}
+.usage {
+  height: 8px;
+  min-width: 120px;
+  background: rgba(var(--lilac-rgb), 0.15);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.usage > div {
+  height: 100%;
+  background: linear-gradient(90deg, var(--pink), var(--cyan));
+}
+.usage.hot > div {
+  background: var(--bad);
+}
+.checks th {
+  text-align: left;
+  color: var(--dim);
+  font-weight: normal;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.big {
+  font-size: 34px;
+  color: var(--pink);
+}
+</style>
+</head>
+<body>
+<div class="screen">
+{{HEADER}}
+<main>
+  <h1>Admin</h1>
+  <div class="tabs" id="tabs" role="tablist">
+    <a href="#status" data-tab="status">Status</a>
+    <a href="#maintenance" data-tab="maintenance">Maintenance</a>
+    <a href="#collector" data-tab="collector">Collector</a>
+  </div>
+
+  <section id="tab-status">
+    <div class="panel">
+      <p>overall: <span id="overall" class="muted">checking...</span> <span class="muted" id="meta"></span></p>
+      <table class="checks" id="checks"></table>
+      <p style="margin:12px 0 0"><button id="refresh" type="button">Refresh</button>
+        <span class="muted" id="updated"></span>
+        <span class="muted">(auto every 15s; raw JSON at <a href="/api/health">/api/health</a>)</span></p>
+    </div>
+  </section>
+
+  <div id="statusLive">
+    <h2>Listening now</h2>
+    <div class="panel">
+      <table class="checks" id="listeners"></table>
+      <p class="muted" id="listenNote"></p>
+    </div>
+
+    <h2>Data streamed</h2>
+    <div class="panel">
+      <p>Sending right now: <span class="big" id="bps">...</span></p>
+      <p class="muted" id="today"></p>
+      <table class="checks" id="trafficUsers"></table>
+      <h3 style="margin-top:14px">Last two weeks</h3>
+      <table class="checks" id="trafficDays"></table>
+    </div>
+
+    <h2>This computer</h2>
+    <div class="panel">
+      <table class="checks" id="sys"></table>
+      <h3 style="margin-top:14px">Drives</h3>
+      <table class="checks" id="disks"></table>
+    </div>
+
+    <h2>Library and background jobs</h2>
+    <div class="panel"><table class="checks" id="jobs"></table></div>
+
+    <h2>Recent problems</h2>
+    <div class="panel">
+      <table class="checks" id="problems"></table>
+      <p class="muted">The last warnings and errors the server logged since it started. Passwords and links are blanked.</p>
+    </div>
+  </div>
+
+  <section id="tab-maintenance" hidden>
+    <div class="panel">
+      <p>Spiders check your library and propose fixes. <b>Nothing changes until you approve it.</b></p>
+      <p><span id="mStatus" class="muted">loading...</span></p>
+      <p style="display:flex;gap:12px;flex-wrap:wrap">
+        <button id="mRun" type="button">Scan now (files, duplicates, tags)</button>
+        <button id="mUnignore" type="button" hidden>Stop ignoring everything</button>
+      </p>
+      <p class="muted" id="mNote"></p>
+      <h3>Schedule</h3>
+      <p class="muted">All the spiders run on this schedule, including the slow online lookup (MusicBrainz) once it is set up.</p>
+      <div class="grid2">
+        <div class="row"><label for="sp_interval_days">Scan again every (days)</label><input id="sp_interval_days" type="number" min="1" max="90"></div>
+        <div class="row"><label for="sp_run_hour">...at this hour (0-23, server time)</label><input id="sp_run_hour" type="number" min="0" max="23"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="sp_auto_scan"> Scan automatically on that schedule</label>
+      <p class="stage-note" id="spSaveNote"></p>
+      <p class="muted" id="mProgress"></p>
+      <p id="mMsg" role="status"></p>
+      <div id="mList"></div>
+    </div>
+  </section>
+
+  <section id="tab-collector" hidden>
+    <div class="panel">
+      <p>Finds music that is <b>legally free to download</b> (Creative Commons or public domain, from the release's own
+         license record). <b>Nothing is downloaded until you press Add to library.</b></p>
+      <p class="muted">Free-to-stream is not the same as free-to-download, so releases without a license record are never
+         suggested. Keep the credit lines if you share anything.</p>
+    </div>
+
+    <h2>Genres to search</h2>
+    <div class="panel">
+      <p class="muted">Tick the genres you want searched. Add new ones any time: they are remembered, even while switched off.</p>
+      <div class="chips" id="genreChips"></div>
+      <div class="inline">
+        <input id="genreInput" type="text" maxlength="39" placeholder="add a genre, for example: dream pop" aria-label="New genre">
+        <button id="genreAdd" type="button">Add genre</button>
+      </div>
+      <div class="chips" id="presets" aria-label="Quick add"></div>
+    </div>
+
+    <h2>Where and when</h2>
+    <div class="panel">
+      <div class="grid2">
+        <label class="check"><input type="checkbox" id="s_internet_archive"> Internet Archive <span class="muted">(main source: netlabels first)</span></label>
+        <label class="check"><input type="checkbox" id="s_ccmixter"> ccMixter <span class="muted">(mostly stock-style single tracks)</span></label>
+        <label class="check"><input type="checkbox" id="s_jamendo"> Jamendo <span class="muted" id="jamNote"></span></label>
+      </div>
+      <p></p>
+      <div class="grid2">
+        <div class="row"><label for="per_genre">Releases per genre, per source (1-100)</label><input id="per_genre" type="number" min="1" max="100"></div>
+        <div class="row"><label for="max_release_mb">Skip releases bigger than (MB)</label><input id="max_release_mb" type="number" min="20" max="10000"></div>
+        <div class="row"><label for="max_suggestions">Keep up to this many suggestions</label><input id="max_suggestions" type="number" min="10" max="500"></div>
+        <div class="row"><label for="min_quality">Minimum quality score (0-100)</label><input id="min_quality" type="number" min="0" max="100"></div>
+        <div class="row"><label for="interval_days">Search again every (days)</label><input id="interval_days" type="number" min="1" max="90"></div>
+        <div class="row"><label for="run_hour">...at this hour (0-23, server time)</label><input id="run_hour" type="number" min="0" max="23"></div>
+      </div>
+      <p class="muted">Every release gets a quality score. It rewards real albums, netlabel releases, downloads and reviews at the source,
+         and artists MusicBrainz knows; it marks down stock, "royalty free" and background-music uploads. Anything below the minimum is not
+         suggested (0 suggests everything). Things on your wanted list are always shown.</p>
+      <label class="check"><input type="checkbox" id="auto_search"> Search automatically on that schedule</label>
+      <p class="stage-note" id="saveNote"></p>
+      <p style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+        <button type="button" id="searchNow">Search now</button>
+        <span class="muted" id="searchStatus"></span>
+      </p>
+    </div>
+
+    <h2>Wanted</h2>
+    <div class="panel">
+      <p class="muted">Artists and albums you are missing. Every search also looks for these. The Maintenance tab can fill this list for you.</p>
+      <div class="chips" id="wantedChips"></div>
+      <div class="inline">
+        <input id="wantArtist" type="text" maxlength="120" placeholder="artist" aria-label="Wanted artist">
+        <input id="wantTitle" type="text" maxlength="160" placeholder="album or song (optional)" aria-label="Wanted title">
+        <button id="wantAdd" type="button">Add to wanted</button>
+      </div>
+    </div>
+
+    <p id="cMsg" role="status"></p>
+
+    <h2>Suggestions</h2>
+    <p class="muted" id="lastSearch"></p>
+    <div id="suggestions"></div>
+
+    <h2>Recently added</h2>
+    <div id="added"></div>
+
+    <h2>Clean up low-quality adds</h2>
+    <div class="panel">
+      <p class="muted">Lists what the Collector added earlier that scores below your minimum, so you can undo several at once. Files go to
+         <code>.trash</code> and can be restored. Older adds were not scored when they were made, so they are scored from what was recorded
+         (title, artist, number of songs); look through the list before undoing.</p>
+      <p style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+        <button type="button" id="reviewBtn">Check my collector adds</button>
+        <span class="muted" id="reviewNote"></span>
+      </p>
+      <div id="reviewList"></div>
+      <p id="reviewBar" style="display:flex;gap:12px;flex-wrap:wrap" hidden>
+        <button type="button" id="reviewAll">Select all</button>
+        <button type="button" id="reviewNone">Select none</button>
+        <button type="button" id="reviewUndo">Undo selected</button>
+      </p>
+    </div>
+  </section>
+</main>
+{{FOOTER}}
+</div>
+<script>
+function button(text, onclick, cls) {
+  const b = el('button', cls, text);
+  b.type = 'button';
+  b.onclick = onclick;
+  return b;
+}
+// third-party data: only real https links become clickable
+function link(text, href) {
+  if (!/^https:\/\//i.test(href || '')) return el('span', 'muted', text);
+  const a = el('a', null, text);
+  a.href = href;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  return a;
+}
+const mb = bytes =>
+  (bytes / 1048576 >= 10 ? Math.round(bytes / 1048576) : (bytes / 1048576).toFixed(1)) + ' MB';
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+async function post(path, body) {
+  const r = await apiFetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof j.detail === 'string' ? j.detail : 'Request failed.');
+  return j;
+}
+
+const modules = {};
+// the tabs this person has the permission for (the server enforces it too)
+let allowedTabs = [];
+function showTab() {
+  if (!allowedTabs.length) return;
+  const wanted = location.hash.slice(1);
+  const name = allowedTabs.includes(wanted) ? wanted : allowedTabs[0];
+  document.querySelectorAll('#tabs a').forEach(a => {
+    a.hidden = !allowedTabs.includes(a.dataset.tab);
+    if (a.dataset.tab === name) a.setAttribute('aria-current', 'true');
+    else a.removeAttribute('aria-current');
+  });
+  Object.keys(modules).forEach(n => {
+    $('tab-' + n).hidden = n !== name;
+    if (n === 'status') $('statusLive').hidden = name !== 'status';
+    if (n === name) modules[n].start();
+    else modules[n].stop();
+  });
+}
+window.addEventListener('hashchange', showTab);
+
+modules.status = (() => {
+  let healthTimer = null,
+    liveTimer = null,
+    busyHealth = false,
+    busyLive = false;
+  // nothing is fetched while this tab is in the background
+  const visible = () => document.visibilityState === 'visible';
+  function row(name, ok, text, warnOnly) {
+    const tr = document.createElement('tr');
+    const a = el('td', null, name);
+    const b = el(
+      'td',
+      ok ? 'ok' : warnOnly ? 'warn' : 'bad',
+      (ok ? '[ OK ] ' : warnOnly ? '[WARN] ' : '[FAIL] ') + text,
+    );
+    tr.append(a, b);
+    return tr;
+  }
+  const fmtUp = s =>
+    `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  const fmtBytes = n => {
+    if (n == null) return 'n/a';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (n >= 1024 && i < units.length - 1) {
+      n /= 1024;
+      i++;
+    }
+    return (i === 0 || n >= 100 ? Math.round(n) : n.toFixed(1)) + ' ' + units[i];
+  };
+  const fmtDur = s =>
+    s < 60
+      ? `${s}s`
+      : s < 3600
+        ? `${Math.floor(s / 60)}m ${s % 60}s`
+        : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  const ago = iso => {
+    if (!iso) return 'never';
+    const s = Math.max(0, Math.round((Date.now() - new Date(iso)) / 1000));
+    return s < 90 ? 'just now' : fmtDur(s) + ' ago';
+  };
+  function usage(percent, hotAt = 90) {
+    const bar = el('div', 'usage' + (percent >= hotAt ? ' hot' : '')),
+      fill = el('div');
+    fill.style.width = Math.min(100, Math.max(0, percent || 0)) + '%';
+    bar.append(fill);
+    return bar;
+  }
+  function cells(tr, ...items) {
+    items.forEach(x => tr.append(x instanceof Node ? x : el('td', null, x)));
+    return tr;
+  }
+  function table(box, header, rows, empty) {
+    box.replaceChildren();
+    if (!rows.length) {
+      const tr = document.createElement('tr');
+      tr.append(el('td', 'muted', empty));
+      box.append(tr);
+      return;
+    }
+    if (header) {
+      const tr = document.createElement('tr');
+      header.forEach(h => tr.append(el('th', null, h)));
+      box.append(tr);
+    }
+    rows.forEach(r => box.append(r));
+  }
+  const kv = (name, value, node) => {
+    const tr = document.createElement('tr');
+    const td = el('td', null, value);
+    if (node) td.append(node);
+    return cells(tr, el('td', null, name), td);
+  };
+
+  async function load() {
+    if (busyHealth) return;
+    busyHealth = true;
+    let h;
+    try {
+      h = await (await apiFetch('/api/health')).json();
+    } catch {
+      $('overall').textContent = 'UNREACHABLE';
+      $('overall').className = 'bad';
+      busyHealth = false;
+      return;
+    }
+    busyHealth = false;
+    const c = h.checks,
+      t = $('checks');
+    t.replaceChildren();
+    $('overall').textContent = h.status.toUpperCase();
+    $('overall').className = h.status === 'ok' ? 'ok' : 'bad';
+    $('meta').textContent = `host ${h.host} / up ${fmtUp(h.uptime_s)}`;
+
+    const d = c.database;
+    t.append(
+      row(
+        'database',
+        d.ok,
+        d.ok
+          ? `${d.latency_ms} ms, ${d.counts.artists} artists / ${d.counts.albums} albums / ${d.counts.tracks} tracks`
+          : `error: ${d.error}`,
+      ),
+    );
+    const f = c.audio_files;
+    t.append(
+      row(
+        'audio files',
+        f.ok,
+        f.ok
+          ? `all ${f.checked} tracks found on disk`
+          : `${f.missing} of ${f.checked} missing, e.g. ${f.missing_examples[0] ?? ''}`,
+      ),
+    );
+    const m = c.music_root;
+    t.append(
+      row(
+        'music folder',
+        m.ok && m.writable,
+        m.ok ? `${m.path} (${m.writable ? 'writable' : 'read-only'})` : `${m.path} not found`,
+        m.ok,
+      ),
+    );
+    const u = c.uploads;
+    t.append(
+      row(
+        'uploads',
+        u.db_write_role,
+        u.db_write_role ? 'enabled' : 'disabled: no DB write role',
+        true,
+      ),
+    );
+    if (c.accounts)
+      t.append(
+        row(
+          'accounts',
+          c.accounts.ok,
+          c.accounts.ok ? 'sign-in enabled' : 'not set up (sql/auth_schema.sql)',
+        ),
+      );
+    const mt = c.maintenance;
+    if (mt)
+      t.append(
+        row(
+          'maintenance',
+          mt.actions_enabled,
+          mt.actions_enabled
+            ? 'fixes and adds enabled'
+            : 'can scan, but approving fixes needs sql/maintenance_role.sql and DB_MAINT_* in .env',
+          true,
+        ),
+      );
+    const r = c.radio_media;
+    if (r)
+      t.append(
+        row(
+          'radio media',
+          r.exists && r.files > 0,
+          r.exists
+            ? `${r.files} picture/video file(s) in ${r.path}`
+            : `${r.path} not found (radio uses album covers only)`,
+          true,
+        ),
+      );
+    $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+  }
+
+  function renderLive(d) {
+    // who is listening
+    const rows = d.listeners.map(l =>
+      cells(
+        document.createElement('tr'),
+        l.user,
+        l.track
+          ? `${l.track.title}${l.track.artists ? ' - ' + l.track.artists : ''}`
+          : '(a song that is not in the library)',
+        el('td', l.state === 'playing' ? 'ok' : 'muted', l.state),
+        `${l.source}, ${l.device}`,
+        l.where,
+        fmtDur(l.listening_s),
+      ),
+    );
+    table(
+      $('listeners'),
+      ['who', 'listening to', '', 'on', 'from', 'this song for'],
+      rows,
+      'Nobody is listening right now.',
+    );
+    $('listenNote').textContent = d.listeners.length
+      ? 'Seen within the last 75 seconds. Addresses stay on this server; nothing is looked up online.'
+      : '';
+
+    // data streamed
+    const tr = d.traffic;
+    $('bps').textContent = fmtBytes(tr.bps) + '/s';
+    $('today').textContent =
+      `Today: ${fmtBytes(tr.today.total)} (${fmtBytes(tr.today.audio)} of music, ${fmtBytes(tr.today.media)} of pictures and videos).`;
+    table(
+      $('trafficUsers'),
+      ['person', 'sent to them today'],
+      tr.users_today.map(u => cells(document.createElement('tr'), u.user, fmtBytes(u.bytes))),
+      'Nothing sent yet today.',
+    );
+    const most = Math.max(1, ...tr.days.map(x => x.audio + x.media));
+    table(
+      $('trafficDays'),
+      null,
+      tr.days
+        .slice()
+        .reverse()
+        .map(x => {
+          const trow = document.createElement('tr'),
+            cell = el('td', null, '');
+          cell.append(usage((100 * (x.audio + x.media)) / most, 101));
+          return cells(trow, x.date, cell, fmtBytes(x.audio + x.media));
+        }),
+      'No data streamed yet.',
+    );
+
+    // this computer
+    const sy = d.system,
+      drows = [];
+    const cpuCell = el('td', null, sy.cpu_percent == null ? 'n/a' : sy.cpu_percent + '%');
+    if (sy.cpu_percent != null) cpuCell.append(usage(sy.cpu_percent));
+    drows.push(cells(document.createElement('tr'), 'processor', cpuCell));
+    if (sy.memory) {
+      const memCell = el(
+        'td',
+        null,
+        `${fmtBytes(sy.memory.used)} of ${fmtBytes(sy.memory.total)} (${sy.memory.percent}%)`,
+      );
+      memCell.append(usage(sy.memory.percent));
+      drows.push(cells(document.createElement('tr'), 'memory', memCell));
+    } else drows.push(kv('memory', 'n/a'));
+    drows.push(
+      kv('load', sy.load ? sy.load.join(' / ') + (sy.cores ? `  (${sy.cores} cores)` : '') : 'n/a'),
+    );
+    drows.push(kv('computer up for', sy.uptime_s == null ? 'n/a' : fmtUp(sy.uptime_s)));
+    drows.push(
+      kv(
+        'temperatures',
+        sy.temps.length
+          ? sy.temps.map(x => `${x.label} ${x.celsius}\u00b0C`).join(', ')
+          : 'n/a (no sensors found)',
+      ),
+    );
+    table($('sys'), null, drows, '');
+    table(
+      $('disks'),
+      ['drive', 'used', 'free'],
+      sy.disks.map(k => {
+        const trow = document.createElement('tr');
+        if (!k.ok) return cells(trow, k.label, el('td', 'bad', `${k.path} not found`), '');
+        const cell = el('td', null, `${fmtBytes(k.used)} of ${fmtBytes(k.total)} (${k.percent}%)`);
+        cell.append(usage(k.percent));
+        return cells(trow, k.label, cell, fmtBytes(k.free));
+      }),
+      'No drives to show.',
+    );
+
+    // library and jobs
+    const jr = [],
+      lib = d.library,
+      sp = d.spiders,
+      co = d.collector;
+    if (lib.counts)
+      jr.push(
+        kv(
+          'library',
+          `${lib.counts.artists} artists / ${lib.counts.albums} albums / ${lib.counts.tracks} songs`,
+        ),
+      );
+    jr.push(
+      kv(
+        'size on disk',
+        lib.size.bytes == null
+          ? lib.size.measuring
+            ? 'measuring...'
+            : 'n/a'
+          : `${fmtBytes(lib.size.bytes)} in ${lib.size.files} files`,
+      ),
+    );
+    if (sp)
+      jr.push(
+        kv(
+          'maintenance scan',
+          sp.running
+            ? `running: ${sp.progress || '...'}`
+            : `last scan ${ago(sp.last_scan)}, ${sp.findings} item(s) to look at`,
+        ),
+      );
+    if (co) {
+      jr.push(
+        kv(
+          'collector search',
+          co.searching
+            ? `running: ${co.progress || '...'}`
+            : `last search ${ago(co.last_search)}, ${co.suggestions} suggestion(s)`,
+        ),
+      );
+      jr.push(
+        kv(
+          'collector downloads',
+          co.downloads_active ? `${co.downloads_active} waiting or downloading` : 'none right now',
+        ),
+      );
+      jr.push(kv('added by the collector', String(co.added)));
+    }
+    table($('jobs'), null, jr, '');
+
+    // problems
+    table(
+      $('problems'),
+      ['when', 'where', 'what'],
+      d.problems.map(p =>
+        cells(
+          document.createElement('tr'),
+          p.at,
+          el('td', 'muted', p.logger),
+          el('td', p.level === 'ERROR' || p.level === 'CRITICAL' ? 'bad' : 'warn', p.message),
+        ),
+      ),
+      'Nothing logged since the server started.',
+    );
+  }
+
+  async function loadLive() {
+    if (busyLive) return;
+    busyLive = true;
+    try {
+      renderLive(await (await apiFetch('/api/health/live')).json());
+    } catch {
+      /* the next tick tries again */
+    }
+    busyLive = false;
+  }
+
+  const onVisible = () => {
+    if (visible()) {
+      load();
+      loadLive();
+    }
+  };
+  $('refresh').onclick = () => {
+    load();
+    loadLive();
+  };
+  return {
+    start() {
+      load();
+      loadLive();
+      // the heavy check (every audio file) stays slow
+      if (!healthTimer)
+        healthTimer = setInterval(() => {
+          if (visible()) load();
+        }, 30000);
+      // listeners and data rate move quickly
+      if (!liveTimer)
+        liveTimer = setInterval(() => {
+          if (visible()) loadLive();
+        }, 5000);
+      document.addEventListener('visibilitychange', onVisible);
+    },
+    stop() {
+      clearInterval(healthTimer);
+      clearInterval(liveTimer);
+      healthTimer = liveTimer = null;
+      document.removeEventListener('visibilitychange', onVisible);
+    },
+  };
+})();
+
+modules.maintenance = (() => {
+  const KIND = {
+    missing_file: 'Songs whose file is missing',
+    unreadable_audio: 'Files that will not play',
+    orphan_file: 'Files on disk not in the library',
+    missing_cover: 'Albums missing cover art',
+    duplicate_path: 'Same file listed twice',
+    duplicate_content: 'Identical files',
+    duplicate_song: 'Same song entered twice',
+    similar_artist: 'Artists that may be the same',
+    combined_credit: 'Credits that may be several artists',
+    track_without_artist: 'Songs with no artist',
+    missing_track_number: 'Songs missing a track number',
+    tag_mismatch: 'Titles that differ from the file',
+    missing_year: 'Albums missing a year',
+    artist_without_songs: 'Artists with no songs',
+    spider_failed: 'A spider crashed',
+    library_unavailable: 'The music library looks unavailable',
+    online_album_year: 'Album years found online',
+    online_track_number: 'Track numbers found online',
+    online_missing_tracks: 'Albums you only partly have',
+    online_missing_releases: 'Releases you do not have',
+    online_cover: 'Cover art found online',
+    online_unmatched: 'Artists not found online',
+    enrich_needs_contact: 'Online lookup needs setting up',
+    enrich_stopped: 'Online lookup stopped',
+  };
+  const SEV = { error: 0, warn: 1, info: 2 };
+  let timer = null,
+    scheduleFilled = false;
+  const say = (text, cls) => {
+    $('mMsg').textContent = text;
+    $('mMsg').className = cls || 'muted';
+  };
+
+  async function act(kind, f, item, buttons) {
+    if (
+      kind === 'approve' &&
+      f.action.destructive &&
+      !confirm(`${f.action.label}\n\n${f.action.detail}\n\nThis changes your library. Continue?`)
+    )
+      return;
+    buttons.forEach(b => {
+      b.disabled = true;
+    });
+    try {
+      const j = await post(`/api/maintenance/${kind}`, { finding_id: f.id });
+      say(
+        kind === 'approve'
+          ? j.message
+          : kind === 'ignore'
+            ? 'Ignored for good. "Stop ignoring everything" brings these back.'
+            : 'Hidden until the next scan. If the problem is still there, it will show again.',
+        'ok',
+      );
+      item.remove();
+    } catch (err) {
+      say(err.message, 'bad');
+      buttons.forEach(b => {
+        b.disabled = false;
+      });
+    }
+  }
+
+  function render(m) {
+    const list = $('mList');
+    list.replaceChildren();
+    const when = m.generated_at ? new Date(m.generated_at).toLocaleString() : null;
+    $('mStatus').textContent = m.running
+      ? 'Working...'
+      : when
+        ? `Last scan ${when}: ${m.findings.length} item(s) to look at` +
+          (m.ignored ? `, ${m.ignored} ignored for good` : '')
+        : 'No scan yet. Press "Scan now".';
+    $('mProgress').textContent = m.running ? m.progress || '' : '';
+    $('mRun').disabled = m.running || false;
+    $('mUnignore').hidden = !m.ignored;
+    const online =
+      m.ran_at && m.ran_at.enrich
+        ? ` Online lookup last ran ${new Date(m.ran_at.enrich).toLocaleString()}.`
+        : '';
+    $('mNote').textContent =
+      (m.actions_enabled
+        ? ''
+        : 'Fixes are off: run sql/maintenance_role.sql on your PostgreSQL database and add DB_MAINT_USER / DB_MAINT_PASSWORD to .env. You can still read and dismiss findings. ') +
+      ('The online lookup checks ' +
+        (m.online_source || 'Deezer') +
+        ' and is slow (a few minutes).') +
+      online;
+    if (!scheduleFilled && m.schedule) {
+      $('sp_interval_days').value = m.schedule.interval_days;
+      $('sp_run_hour').value = m.schedule.run_hour;
+      $('sp_auto_scan').checked = m.schedule.auto_scan;
+      scheduleFilled = true;
+    }
+
+    const groups = {};
+    m.findings.forEach(f => (groups[f.kind] = groups[f.kind] || []).push(f));
+    Object.entries(groups)
+      .sort((a, b) => SEV[a[1][0].severity] - SEV[b[1][0].severity] || b[1].length - a[1].length)
+      .forEach(([kind, items]) => {
+        const box = document.createElement('details');
+        box.open = items[0].severity !== 'info';
+        const sum = el(
+          'summary',
+          items[0].severity === 'error' ? 'bad' : items[0].severity === 'warn' ? 'warn' : 'muted',
+          `${KIND[kind] || kind} (${items.length})`,
+        );
+        box.append(sum);
+        items.slice(0, 50).forEach(f => {
+          const item = el('div');
+          item.style.cssText =
+            'margin:10px 0 14px 18px;padding-bottom:8px;border-bottom:1px dashed var(--border)';
+          item.append(el('div', null, f.message));
+          const btns = [],
+            bar = el('div');
+          bar.style.cssText =
+            'display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;align-items:center';
+          const skip = button('Dismiss until next scan', () => act('dismiss', f, item, btns));
+          const never = button('Ignore for good', () => act('ignore', f, item, btns));
+          btns.push(skip, never);
+          bar.append(skip, never);
+          if (f.action) {
+            const go = button(f.action.label, () => act('approve', f, item, btns));
+            go.title = f.action.detail;
+            btns.push(go);
+            bar.append(go, el('span', 'muted', f.action.detail));
+          }
+          item.append(bar);
+          box.append(item);
+        });
+        if (items.length > 50)
+          box.append(
+            el(
+              'p',
+              'muted',
+              `Showing the first 50 of ${items.length}. Handle these and scan again.`,
+            ),
+          );
+        list.append(box);
+      });
+  }
+
+  async function load() {
+    try {
+      const m = await (await apiFetch('/api/maintenance')).json();
+      render(m);
+      if (m.running && !timer) timer = setInterval(load, 2000);
+      if (!m.running && timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    } catch {
+      $('mStatus').textContent = 'Could not load the maintenance report.';
+    }
+  }
+  async function run() {
+    $('mRun').disabled = true;
+    try {
+      await post('/api/maintenance/run');
+    } catch (e) {
+      say(e.message, 'bad');
+    }
+    load();
+  }
+  $('mRun').onclick = run;
+  $('mUnignore').onclick = async () => {
+    if (!confirm('Show every finding you ignored for good again at the next scan?')) return;
+    try {
+      const j = await post('/api/maintenance/unignore-all');
+      say(`${j.cleared} finding(s) will show again at the next scan.`, 'ok');
+    } catch (e) {
+      say(e.message, 'bad');
+    }
+    load();
+  };
+  let scheduleSaveTimer = null;
+  async function saveSchedule() {
+    try {
+      await post('/api/maintenance/schedule', {
+        auto_scan: $('sp_auto_scan').checked,
+        interval_days: $('sp_interval_days').value,
+        run_hour: $('sp_run_hour').value,
+      });
+      $('spSaveNote').textContent = 'saved';
+    } catch (err) {
+      $('spSaveNote').textContent = '';
+      say(err.message, 'bad');
+    }
+  }
+  ['sp_interval_days', 'sp_run_hour', 'sp_auto_scan'].forEach(id =>
+    $(id).addEventListener('change', () => {
+      $('spSaveNote').textContent = 'saving...';
+      clearTimeout(scheduleSaveTimer);
+      scheduleSaveTimer = setTimeout(saveSchedule, 600);
+    }),
+  );
+  return {
+    start: load,
+    stop() {
+      clearInterval(timer);
+      timer = null;
+    },
+  };
+})();
+
+modules.collector = (() => {
+  const SOURCE = { internet_archive: 'Internet Archive', ccmixter: 'ccMixter', jamendo: 'Jamendo' };
+  const PRESETS = [
+    'vaporwave',
+    'chiptune',
+    'ambient',
+    'synthwave',
+    'lo-fi',
+    'dream pop',
+    'shoegaze',
+    'idm',
+    'drone',
+    'noise',
+    'experimental',
+    'downtempo',
+    'breakbeat',
+    'jazz',
+    'classical',
+    'folk',
+    'hip hop',
+    'electronic',
+    'techno',
+    'house',
+    'trance',
+    'dub',
+    'punk',
+    'metal',
+    'rock',
+    'funk',
+    'soul',
+  ];
+  let data = null,
+    timer = null,
+    config = null,
+    saveTimer = null,
+    suggSig = '',
+    filled = false;
+  // suggestion ids clicked a moment ago, before the server has a job for them
+  const pending = new Set();
+  const say = (text, cls) => {
+    $('cMsg').textContent = text;
+    $('cMsg').className = cls || 'muted';
+  };
+
+  function scheduleSave() {
+    $('saveNote').textContent = 'saving...';
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 600);
+  }
+  async function saveNow() {
+    const sources = {};
+    Object.keys(SOURCE).forEach(s => {
+      sources[s] = $('s_' + s).checked;
+    });
+    const cfg = { ...config, sources, auto_search: $('auto_search').checked };
+    [
+      'per_genre',
+      'max_release_mb',
+      'max_suggestions',
+      'min_quality',
+      'interval_days',
+      'run_hour',
+    ].forEach(k => {
+      cfg[k] = $(k).value;
+    });
+    try {
+      config = await post('/api/collector/config', cfg);
+      $('saveNote').textContent = 'saved';
+      renderGenres();
+    } catch (err) {
+      $('saveNote').textContent = '';
+      say(err.message, 'bad');
+    }
+  }
+  function fillSettings() {
+    config = data.config;
+    Object.keys(SOURCE).forEach(s => {
+      $('s_' + s).checked = !!config.sources[s];
+    });
+    $('s_jamendo').disabled = !data.sources_available.jamendo;
+    $('jamNote').textContent = data.sources_available.jamendo
+      ? ''
+      : '(add JAMENDO_CLIENT_ID to .env to use it)';
+    [
+      'per_genre',
+      'max_release_mb',
+      'max_suggestions',
+      'min_quality',
+      'interval_days',
+      'run_hour',
+    ].forEach(k => {
+      $(k).value = config[k];
+    });
+    $('auto_search').checked = config.auto_search;
+    renderGenres();
+    filled = true;
+  }
+  document
+    .querySelectorAll(
+      '#tab-collector input[type=number], #tab-collector #auto_search, #tab-collector [id^=s_]',
+    )
+    .forEach(i =>
+      i.addEventListener('change', () => {
+        if (config) scheduleSave();
+      }),
+    );
+
+  function renderGenres() {
+    const chips = $('genreChips');
+    chips.replaceChildren();
+    config.genres.forEach((g, i) => {
+      const chip = el('span', 'chip' + (g.enabled ? '' : ' off'));
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = g.enabled;
+      box.setAttribute('aria-label', 'Search ' + g.name);
+      box.onchange = () => {
+        config.genres[i].enabled = box.checked;
+        scheduleSave();
+      };
+      chip.append(
+        box,
+        el('span', null, g.name),
+        button('x', () => {
+          config.genres.splice(i, 1);
+          scheduleSave();
+          renderGenres();
+        }),
+      );
+      chip.lastChild.setAttribute('aria-label', 'Forget ' + g.name);
+      chips.append(chip);
+    });
+    if (!config.genres.length) chips.append(el('span', 'muted', 'No genres yet. Add one below.'));
+    const have = new Set(config.genres.map(g => g.name.toLowerCase()));
+    const presets = $('presets');
+    presets.replaceChildren();
+    PRESETS.filter(p => !have.has(p))
+      .slice(0, 14)
+      .forEach(p => {
+        const chip = el('span', 'chip preset', '+ ' + p);
+        chip.tabIndex = 0;
+        const add = () => addGenre(p);
+        chip.onclick = add;
+        chip.onkeydown = e => {
+          if (e.key === 'Enter') add();
+        };
+        presets.append(chip);
+      });
+  }
+  function addGenre(name) {
+    name = name.trim();
+    if (!name) return;
+    if (config.genres.some(g => g.name.toLowerCase() === name.toLowerCase())) {
+      say(`"${name}" is already in the list.`, 'warn');
+      return;
+    }
+    config.genres.push({ name, enabled: true });
+    $('genreInput').value = '';
+    renderGenres();
+    scheduleSave();
+  }
+  $('genreAdd').onclick = () => addGenre($('genreInput').value);
+  $('genreInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addGenre($('genreInput').value);
+    }
+  });
+
+  function renderWanted() {
+    const chips = $('wantedChips');
+    chips.replaceChildren();
+    data.wanted.forEach(w => {
+      const chip = el('span', 'chip');
+      chip.append(
+        el('span', null, w.title ? `${w.artist} - ${w.title}` : `${w.artist} (anything)`),
+        button('x', async () => {
+          try {
+            await post('/api/collector/wanted/remove', { artist: w.artist, title: w.title || '' });
+            load();
+          } catch (e) {
+            say(e.message, 'bad');
+          }
+        }),
+      );
+      chips.append(chip);
+    });
+    if (!data.wanted.length) chips.append(el('span', 'muted', 'Nothing wanted yet.'));
+  }
+  $('wantAdd').onclick = async () => {
+    if (!$('wantArtist').value.trim()) return say('Enter an artist.', 'warn');
+    try {
+      await post('/api/collector/wanted/add', {
+        artist: $('wantArtist').value,
+        title: $('wantTitle').value,
+      });
+      $('wantArtist').value = '';
+      $('wantTitle').value = '';
+      load();
+    } catch (e) {
+      say(e.message, 'bad');
+    }
+  };
+
+  // suggestions, with a live status on each card
+  function newestJob(id) {
+    return data.jobs.find(j => j.key === id) || null;
+  }
+
+  function updateState(s, stateBox, bar) {
+    const job = newestJob(s.id);
+    const busy =
+      pending.has(s.id) || (job && (job.status === 'queued' || job.status === 'running'));
+    stateBox.replaceChildren();
+    stateBox.className = 'state';
+    stateBox.hidden = !(busy || job);
+    if (job && job.status === 'running') {
+      stateBox.classList.add('running');
+      stateBox.append(el('div', null, 'Downloading...'));
+      const meter = el('div', 'meter'),
+        fill = el('div');
+      fill.style.width =
+        (job.total ? Math.min(100, Math.round((job.done / job.total) * 100)) : 10) + '%';
+      meter.append(fill);
+      stateBox.append(
+        meter,
+        el(
+          'div',
+          'muted',
+          job.total ? `${mb(Math.min(job.done, job.total))} of ${mb(job.total)}` : mb(job.done),
+        ),
+      );
+    } else if (job && job.status === 'queued') {
+      stateBox.append(el('div', 'muted', 'Waiting in line...'));
+    } else if (pending.has(s.id)) {
+      stateBox.append(el('div', 'muted', 'Starting...'));
+    } else if (job && job.status === 'failed') {
+      stateBox.classList.add('failed');
+      stateBox.append(
+        el('div', 'bad', 'Failed: ' + job.message),
+        el('div', 'muted', 'Press Add to library to try again.'),
+      );
+    } else if (job && job.status === 'done') {
+      stateBox.classList.add('done');
+      stateBox.append(el('div', 'ok', job.message || 'Added.'));
+    }
+    bar.hidden = !!busy;
+  }
+
+  function renderSuggestion(s, sameArtist) {
+    const box = el('div', 'sugg');
+    box.dataset.id = s.id;
+    const h = el('h3', null, `${s.title} `);
+    h.append(el('span', 'muted', `by ${s.artist}`));
+    if (s.reason === 'wanted') h.append(el('span', 'badge', 'you were looking for this'));
+    else if (s.known_artist) h.append(el('span', 'badge', 'you have this artist'));
+    box.append(h);
+
+    const meta = el('div', 'meta');
+    meta.append(
+      `${SOURCE[s.source] || s.source} / ${s.genre}` +
+        (s.year ? ` / ${s.year}` : '') +
+        ` / ${plural(s.tracks.length, 'song')}` +
+        (s.size ? ` / ${mb(s.size)}` : '') +
+        ' / ',
+    );
+    meta.append(
+      link(s.license_label, s.license_url),
+      ' / ',
+      link('listen at the source', s.page_url),
+    );
+    box.append(meta);
+    if (typeof s.quality === 'number') {
+      const q = el('div', 'meta');
+      q.append(
+        el(
+          'b',
+          s.quality >= 60 ? 'ok' : s.quality >= 35 ? 'warn' : 'bad',
+          `Quality ${s.quality}/100`,
+        ),
+        el('span', 'muted', ' - ' + (s.quality_reasons || []).join('; ')),
+      );
+      box.append(q);
+    } else
+      box.append(el('div', 'meta muted', 'Quality: not scored (found before scoring existed)'));
+
+    if (s.tracks.length > 1) {
+      const d = el('details');
+      d.append(el('summary', null, 'songs'));
+      s.tracks.forEach(t => d.append(el('div', 'muted', `${t.number ?? '-'}  ${t.title}`)));
+      box.append(d);
+    }
+
+    const stateBox = el('div', 'state');
+    const bar = el('div', 'bar');
+    const add = async fn => {
+      if (!data.adds_enabled)
+        return say(
+          'Adding needs the maintenance database role (sql/maintenance_role.sql and DB_MAINT_* in .env).',
+          'warn',
+        );
+      pending.add(s.id);
+      updateAll();
+      try {
+        await fn();
+      } catch (e) {
+        say(e.message, 'bad');
+      }
+      pending.delete(s.id);
+      load();
+    };
+    bar.append(
+      button('Add to library', () => add(() => post('/api/collector/approve', { id: s.id }))),
+    );
+    if (sameArtist > 1) {
+      bar.append(
+        button(`Add all ${sameArtist} by ${s.artist}`, () => {
+          if (!confirm(`Download all ${sameArtist} suggested releases by ${s.artist}?`)) return;
+          add(async () => {
+            const j = await post('/api/collector/approve-artist', { id: s.id });
+            say(`Queued ${j.queued} release(s).`, 'ok');
+          });
+        }),
+      );
+    }
+    bar.append(
+      button('Not interested', async () => {
+        try {
+          await post('/api/collector/dismiss', { id: s.id });
+          load();
+        } catch (e) {
+          say(e.message, 'bad');
+        }
+      }),
+    );
+    bar.append(
+      button('Never suggest this artist', async () => {
+        if (!confirm(`Never suggest anything by ${s.artist} again?`)) return;
+        try {
+          await post('/api/collector/dismiss', { id: s.id, block_artist: true });
+          load();
+        } catch (e) {
+          say(e.message, 'bad');
+        }
+      }),
+    );
+    box.append(stateBox, bar);
+    box._update = () => updateState(s, stateBox, bar);
+    box._update();
+    return box;
+  }
+
+  function updateAll() {
+    document.querySelectorAll('#suggestions .sugg').forEach(b => b._update && b._update());
+  }
+
+  function renderSuggestions() {
+    const list = $('suggestions');
+    const sig = data.suggestions.map(s => s.id).join(',');
+    // same cards: only refresh their status, keep open lists and scroll
+    if (sig === suggSig) {
+      updateAll();
+      return;
+    }
+    suggSig = sig;
+    list.replaceChildren();
+    const counts = {};
+    data.suggestions.forEach(s => {
+      counts[s.artist.toLowerCase()] = (counts[s.artist.toLowerCase()] || 0) + 1;
+    });
+    data.suggestions.forEach(s => list.append(renderSuggestion(s, counts[s.artist.toLowerCase()])));
+    if (!data.suggestions.length) list.append(el('p', 'muted', 'Nothing to suggest right now.'));
+  }
+
+  // clean up earlier adds below the quality bar
+  let reviewItems = [];
+  function renderReview() {
+    const list = $('reviewList');
+    list.replaceChildren();
+    reviewItems.forEach(it => {
+      const row = el('label', 'check');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.dataset.id = it.id;
+      row.append(
+        box,
+        el('span', null, ` ${it.title} by ${it.artist} `),
+        el(
+          'span',
+          'muted',
+          `(${SOURCE[it.source] || it.source}, ${it.single ? 'single' : plural(it.tracks || 0, 'song')}, score ${it.quality}` +
+            `${it.scored_when_added ? '' : ', scored from the record'}: ${(it.reasons || []).join('; ')})`,
+        ),
+      );
+      list.append(row);
+    });
+    $('reviewBar').hidden = !reviewItems.length;
+  }
+  const ticked = () =>
+    [...document.querySelectorAll('#reviewList input:checked')].map(b => b.dataset.id);
+  async function review() {
+    $('reviewNote').textContent = 'checking...';
+    try {
+      const r = await (await apiFetch('/api/collector/review-added')).json();
+      reviewItems = r.items;
+      $('reviewNote').textContent = r.items.length
+        ? `${plural(r.items.length, 'add')} below the minimum score of ${r.min_quality}. Tick the ones to undo.`
+        : `Nothing added through the Collector scores below ${r.min_quality}.`;
+      renderReview();
+    } catch {
+      $('reviewNote').textContent = 'Could not load the list.';
+    }
+  }
+  $('reviewBtn').onclick = review;
+  $('reviewAll').onclick = () =>
+    document.querySelectorAll('#reviewList input').forEach(b => {
+      b.checked = true;
+    });
+  $('reviewNone').onclick = () =>
+    document.querySelectorAll('#reviewList input').forEach(b => {
+      b.checked = false;
+    });
+  $('reviewUndo').onclick = async () => {
+    const ids = ticked();
+    if (!ids.length) return say('Tick at least one first.', 'warn');
+    if (
+      !confirm(
+        `Remove ${plural(ids.length, 'release')} from the library? The files go to .trash and can be restored.`,
+      )
+    )
+      return;
+    $('reviewUndo').disabled = true;
+    try {
+      for (let i = 0; i < ids.length; i += 100) {
+        const j = await post('/api/collector/undo-many', { ids: ids.slice(i, i + 100) });
+        const failed = j.results.filter(x => !x.ok);
+        say(
+          `Undid ${j.undone} of ${j.results.length}.` +
+            (failed.length ? ` Problems: ${failed.map(x => x.message).join('; ')}` : ''),
+          failed.length ? 'warn' : 'ok',
+        );
+      }
+    } catch (e) {
+      say(e.message, 'bad');
+    }
+    $('reviewUndo').disabled = false;
+    review();
+    load();
+  };
+
+  function renderAdded() {
+    const added = $('added');
+    added.replaceChildren();
+    data.added.forEach(a => {
+      const row = el('div', 'sugg');
+      row.append(
+        el('div', null, `${a.title} by ${a.artist}`),
+        el(
+          'div',
+          'meta',
+          `${a.license_label} / ${plural(a.tracks, 'song')} / added ${new Date(a.at).toLocaleDateString()} by ${a.by}`,
+        ),
+        el('div', 'muted', a.attribution),
+      );
+      const bar = el('div', 'bar');
+      bar.append(
+        button('Undo', async () => {
+          if (
+            !confirm(
+              `Remove "${a.title}" from the library? The files go to .trash and can be restored.`,
+            )
+          )
+            return;
+          try {
+            const j = await post('/api/collector/undo', { id: a.id });
+            say(j.message, 'ok');
+            load();
+          } catch (e) {
+            say(e.message, 'bad');
+          }
+        }),
+      );
+      row.append(bar);
+      added.append(row);
+    });
+    if (!data.added.length)
+      added.append(el('p', 'muted', 'Nothing added through the Collector yet.'));
+  }
+
+  function render() {
+    if (!filled) fillSettings();
+    $('searchNow').disabled = data.searching;
+    $('searchStatus').textContent = data.searching ? data.search_status || 'searching...' : '';
+    const ls = data.last_search;
+    $('lastSearch').textContent = ls
+      ? `Last search ${new Date(ls.at).toLocaleString()}: ${ls.new} new` +
+        (ls.below_quality
+          ? `, ${ls.below_quality} skipped as below the quality minimum (${ls.min_quality})`
+          : '') +
+        (ls.errors.length ? `. Problems: ${ls.errors.join('; ')}` : '')
+      : 'No search yet. Switch on some genres and press Search now.';
+    renderWanted();
+    renderSuggestions();
+    renderAdded();
+  }
+
+  async function load() {
+    try {
+      data = await (await apiFetch('/api/collector')).json();
+      render();
+      const active =
+        data.searching ||
+        pending.size ||
+        data.jobs.some(j => j.status === 'queued' || j.status === 'running');
+      if (active && !timer) timer = setInterval(load, 2000);
+      if (!active && timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    } catch {
+      say('Could not load the Collector data.', 'bad');
+    }
+  }
+  $('searchNow').onclick = async () => {
+    try {
+      await post('/api/collector/search');
+      say('Searching. This can take a minute or two.', 'muted');
+      load();
+    } catch (e) {
+      say(e.message, 'bad');
+    }
+  };
+  return {
+    start: load,
+    stop() {
+      clearInterval(timer);
+      timer = null;
+    },
+  };
+})();
+
+apiFetch('/api/auth/me')
+  .then(r => r.json())
+  .then(u => {
+    allowedTabs = ['status', 'maintenance', 'collector'].filter(t => u.permissions.includes(t));
+    showTab();
+  });
+</script>
+</body>
+</html>

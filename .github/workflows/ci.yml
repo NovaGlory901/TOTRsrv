@@ -1,0 +1,42 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Test suites
+        # test_library and test_live_library need a real music library, so they are left out here.
+        # Parts that need a browser print "skip" and do not count as failures.
+        run: |
+          fail=0
+          for t in tests/test_*.py; do
+            n=$(basename "$t" .py)
+            case "$n" in test_library|test_live_library) echo "SKIP $n"; continue;; esac
+            out=$(python "$t" 2>&1); rc=$?
+            if [ $rc -ne 0 ] || echo "$out" | grep -q '^BAD'; then
+              echo "FAIL $n"; echo "$out" | tail -30; fail=1
+            else
+              echo "PASS $n"
+            fi
+          done
+          exit $fail

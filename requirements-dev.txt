@@ -1,0 +1,2 @@
+httpx2   # lets the tests call the web app without a server
+ruff   # formats and checks the code: ruff format . && ruff check .

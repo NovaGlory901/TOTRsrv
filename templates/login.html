@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in | TOTR</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="screen">
+{{HEADER}}
+<main>
+  <h1>Sign in</h1>
+  <form id="form" class="panel" style="max-width:460px" autocomplete="on">
+    <div class="row"><label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username" required maxlength="64"
+             autocapitalize="none" spellcheck="false" autofocus></div>
+    <div class="row"><label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024"></div>
+    <button id="go" type="submit">Sign in</button>
+    <p id="msg" style="margin:14px 0 0" role="status"></p>
+  </form>
+  <p class="muted" id="note"></p>
+  <p class="muted"><a href="/download">get the app</a></p>
+</main>
+{{FOOTER}}
+</div>
+<script>
+// Only ever go to a page on this site, never to an address taken from the URL.
+function safeNext() {
+  const n = new URLSearchParams(location.search).get('next') || '/';
+  return n.startsWith('/') && !n.startsWith('//') && !n.includes('\\') ? n : '/';
+}
+
+// The app around this page may remember the sign-in for this server and sign in by itself.
+if (window.TotrAccounts && window.TotrAccounts.supported())
+  window.TotrAccounts.auto().then(ok => {
+    if (ok) location.href = safeNext();
+  });
+
+fetch('/api/auth/setup')
+  .then(r => r.json())
+  .then(s => {
+    if (!s.configured)
+      $('note').textContent =
+        'Accounts are not set up on this server yet. The owner needs to run sql/auth_schema.sql.';
+    else if (!s.has_users)
+      $('note').textContent =
+        'No accounts exist yet. On the server, run: python -m auth.cli create-admin YOURNAME';
+  })
+  .catch(() => {});
+
+$('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = $('msg'),
+    btn = $('go');
+  btn.disabled = true;
+  msg.className = 'muted';
+  msg.textContent = 'signing in...';
+  const password = $('password').value;
+  try {
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: $('username').value, password: $('password').value }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(typeof j.detail === 'string' ? j.detail : 'Sign-in failed.');
+    // the app offers to remember it
+    if (window.TotrAccounts) await window.TotrAccounts.save($('username').value, password);
+    location.href = safeNext();
+  } catch (err) {
+    msg.className = 'bad';
+    msg.textContent = err.message;
+    $('password').value = '';
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

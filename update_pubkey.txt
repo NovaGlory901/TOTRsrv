@@ -1,0 +1,4 @@
+# The developer's public key for signed updates: one line, `ed25519 <base64 of the 32 key bytes> [comment]`.
+# It is empty until the developer puts theirs here (make one with `python tools/release_tool.py keygen`). With no key a server cannot install updates:
+# it could not tell a real one from a fake one.
+ed25519 jloytEs1CRiIprtoGVSH1yqvXdXIi10kuqbUF3GuY3o= totr release key 2026-10-12

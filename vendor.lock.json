@@ -1,0 +1,53 @@
+{
+  "_": "Written by tools/sync-vendor.cjs. Do not edit by hand.",
+  "files": {
+    "dejavuamp-core.js": {
+      "from": "DejaVuAmp/js",
+      "sha256": "d4dda184492814d4ba373c1a124f5aae5f0033887499409fca0671fa34acd37a"
+    },
+    "dejavuamp.js": {
+      "from": "DejaVuAmp/js",
+      "sha256": "ff8ffef49e50ee4c1a528b77250a7e641c60e10b9a36905e054f314f66d78ff3"
+    },
+    "dejavuamp.css": {
+      "from": "DejaVuAmp/js",
+      "sha256": "f56e9386df778572a4fcd967ec455d22e6b553511507e2430435143c749618cd"
+    },
+    "falsehorizon-core.js": {
+      "from": "FalseHorizons/js",
+      "sha256": "16a626693937bd57c6714042aca1d37e103d4a5e184c73a27c8c5fbbe9d79208"
+    },
+    "falsehorizon-expr.js": {
+      "from": "FalseHorizons/js",
+      "sha256": "10f3dc0568f6854466e3e1eaeea38a631609442e700a49c96c6d8f462814c511"
+    },
+    "falsehorizon-milk.js": {
+      "from": "FalseHorizons/js",
+      "sha256": "8b3350957ff620558a5f2bc2681230544d9021fde0f4b591f2c6def7c69b3d10"
+    },
+    "falsehorizon-presets.js": {
+      "from": "FalseHorizons/js",
+      "sha256": "13119cca321e6cb987c2f3a953c854ca063e48cd491d6cc2ddcde60fdff32abf"
+    },
+    "falsehorizon-ui.js": {
+      "from": "FalseHorizons/js",
+      "sha256": "7fe8b117a96c0b5a4480341a01a889b82e7a3e3ec4a66efc747bcfbe4c414dc6"
+    },
+    "falsehorizon.js": {
+      "from": "FalseHorizons/js",
+      "sha256": "23a8fe7c6e1a3683aa15cab69bf340f993ff7271eacc088fc026d95e9e44d236"
+    },
+    "falsehorizon.css": {
+      "from": "FalseHorizons/js",
+      "sha256": "59fafa306494bcbce1237b73611ba7b8f0e674a3673293f02486302ee59c42bd"
+    },
+    "falsehorizon-scene.js": {
+      "from": "TOTRsrv/static",
+      "sha256": "efd5b4bf0ebd60aa54c3e8c57f16232f5c7880bb279686e7b15e3a9f279dfc21"
+    },
+    "settings-carryover.js": {
+      "from": "TOTRsrv/static",
+      "sha256": "44ee8b43510838973b52aaa44378a93029aebe863607f5c79c9267edd55df8ad"
+    }
+  }
+}

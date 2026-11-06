@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Users | TOTR</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.perms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 6px 0;
+}
+.perms label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--fg);
+}
+.perms input {
+  accent-color: var(--pink);
+  width: 18px;
+  height: 18px;
+}
+.perms label.locked {
+  opacity: 0.5;
+}
+.person {
+  padding: 10px 0 14px;
+  border-bottom: 1px dashed var(--border);
+}
+.person h3 {
+  margin: 0 0 2px;
+  font-size: 24px;
+  overflow-wrap: anywhere;
+}
+.person .bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+.pending h3 {
+  color: var(--dim);
+}
+</style>
+</head>
+<body>
+<div class="screen">
+{{HEADER}}
+<main>
+  <h1>Users</h1>
+
+  <div class="panel">
+    <h2>Invite someone</h2>
+    <p class="muted">Makes a one-time link, good for 7 days. They choose their own username and password. You never see it.
+       The new person shows up in the list below straight away, as invited, with the permissions you pick here.</p>
+    <p><select id="role" aria-label="Role">
+        <option value="member">member: browse and listen, plus the permissions ticked below</option>
+        <option value="admin">admin: everything</option>
+      </select></p>
+    <div class="perms" id="invitePerms" aria-label="Permissions for the new person"></div>
+    <p><button id="invite" type="button">Create invite link</button></p>
+    <div id="link" hidden>
+      <p class="warn">Copy this now. It is only shown once.</p>
+      <input id="linkText" type="text" readonly aria-label="Invite link">
+      <p><button id="copy" type="button">Copy</button></p>
+    </div>
+    <p class="muted" id="setupNote"></p>
+    <p id="msg" role="status"></p>
+  </div>
+
+  <div class="panel">
+    <h2>People asking to join</h2>
+    <p class="muted">When this is on, the TOTR apps on your network can find this server and send a join request. Nothing is created until you approve: approving makes a
+       one-time invite that only that app can open, so they still choose their own username and password. The "install" code names one copy of the app: the same code
+       on a later request means the same copy asked again. What the app says about the person's other server is only what the app reported, not proof.</p>
+    <p><label><input type="checkbox" id="joinOpen"> Let people ask to join this server</label></p>
+    <div id="joinList"></div>
+    <p class="muted" id="joinNote"></p>
+  </div>
+
+  <div class="panel">
+    <h2>People</h2>
+    <p class="muted">Admins always have every permission. For members, tick what they may do. You can only change permissions you have yourself, and not your own.</p>
+    <div id="people"></div>
+  </div>
+</main>
+{{FOOTER}}
+</div>
+<script>
+const say = (t, c) => {
+  $('msg').textContent = t;
+  $('msg').className = c || 'muted';
+};
+const when = v => (v ? new Date(v).toLocaleString() : 'never');
+let me = { permissions: [], role: 'member' },
+  names = [],
+  labels = {},
+  enabled = true;
+
+async function call(path, body) {
+  const r = await apiFetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof j.detail === 'string' ? j.detail : 'Request failed.');
+  return j;
+}
+
+// A row of checkboxes. Ones you do not hold yourself are shown but locked, because the server would
+// refuse them.
+function permBoxes(selected, { locked = false } = {}) {
+  const box = el('div', 'perms');
+  names.forEach(n => {
+    const mine = me.role === 'admin' || me.permissions.includes(n);
+    const label = el('label', !enabled || locked || !mine ? 'locked' : '');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.value = n;
+    input.checked = selected.includes(n);
+    input.disabled = !enabled || locked || !mine;
+    label.append(input, el('span', null, labels[n] || n));
+    box.append(label);
+  });
+  return box;
+}
+const ticked = box => [...box.querySelectorAll('input:checked')].map(i => i.value);
+
+function renderInviteForm() {
+  const box = $('invitePerms');
+  const keep = ticked(box);
+  box.replaceWith(Object.assign(permBoxes(keep), { id: 'invitePerms' }));
+  $('invitePerms').hidden = $('role').value === 'admin';
+}
+
+function person(u) {
+  const row = el('div', 'person');
+  const isMe = u.username === me.username;
+  const h = el('h3', null, u.username);
+  h.append(
+    el('span', 'muted', ` ${u.role}`),
+    el('span', u.disabled ? 'bad' : 'ok', u.disabled ? '  disabled' : '  active'),
+  );
+  row.append(
+    h,
+    el('div', 'muted', `last sign-in: ${when(u.last_login_at)} / ${u.sessions} session(s)`),
+  );
+  if (u.role === 'admin') row.append(el('div', 'muted', 'All permissions.'));
+  else {
+    const boxes = permBoxes(u.permissions, { locked: isMe });
+    row.append(boxes);
+    if (!isMe && enabled)
+      row.append(
+        Object.assign(el('button', null, 'Save permissions'), {
+          type: 'button',
+          onclick: async () => {
+            try {
+              await call(`/api/admin/users/${u.user_id}/permissions`, {
+                permissions: ticked(boxes),
+              });
+              say(`Saved permissions for ${u.username}.`, 'ok');
+              load();
+            } catch (e) {
+              say(e.message, 'bad');
+            }
+          },
+        }),
+      );
+  }
+  const bar = el('div', 'bar');
+  const mk = (text, fn) =>
+    bar.append(Object.assign(el('button', null, text), { type: 'button', onclick: fn }));
+  mk(u.disabled ? 'Enable' : 'Disable', async () => {
+    if (!u.disabled && !confirm(`Disable ${u.username}? They will be signed out.`)) return;
+    try {
+      await call(`/api/admin/users/${u.user_id}/${u.disabled ? 'enable' : 'disable'}`);
+      say('Done.', 'ok');
+      load();
+    } catch (e) {
+      say(e.message, 'bad');
+    }
+  });
+  mk('Sign out everywhere', async () => {
+    try {
+      await call(`/api/admin/users/${u.user_id}/signout`);
+      say('Signed out.', 'ok');
+      load();
+    } catch (e) {
+      say(e.message, 'bad');
+    }
+  });
+  if (!isMe)
+    mk('Delete user', async () => {
+      const typed = prompt(
+        `Delete ${u.username} for good? Their sessions end and their account is removed (their uploads and the logs keep the name).\n\nType their username to confirm:`,
+      );
+      if (typed === null) return;
+      try {
+        await call(`/api/admin/users/${u.user_id}/delete`, { confirm_username: typed });
+        say(`Deleted ${u.username}.`, 'ok');
+        load();
+      } catch (e) {
+        say(e.message, 'bad');
+      }
+    });
+  row.append(bar);
+  return row;
+}
+
+function pendingPerson(i) {
+  const row = el('div', 'person pending');
+  const h = el('h3', null, 'Invited, not signed up yet');
+  h.append(el('span', 'muted', ` ${i.role}`));
+  row.append(
+    h,
+    el(
+      'div',
+      'muted',
+      `invited by ${i.created_by || 'someone who has since been removed'} / link expires ${when(i.expires_at)}`,
+    ),
+  );
+  if (i.role === 'admin') row.append(el('div', 'muted', 'All permissions.'));
+  else {
+    const boxes = permBoxes(i.permissions);
+    row.append(boxes);
+    if (enabled)
+      row.append(
+        Object.assign(el('button', null, 'Save permissions'), {
+          type: 'button',
+          onclick: async () => {
+            try {
+              await call(`/api/admin/invites/${i.invite_id}/permissions`, {
+                permissions: ticked(boxes),
+              });
+              say("Saved the invite's permissions.", 'ok');
+              load();
+            } catch (e) {
+              say(e.message, 'bad');
+            }
+          },
+        }),
+      );
+  }
+  const bar = el('div', 'bar');
+  bar.append(
+    Object.assign(el('button', null, 'Revoke invite'), {
+      type: 'button',
+      onclick: async () => {
+        if (!confirm('Revoke this invite? The link stops working.')) return;
+        try {
+          await call(`/api/admin/invites/${i.invite_id}/revoke`);
+          say('Invite revoked.', 'ok');
+          load();
+        } catch (e) {
+          say(e.message, 'bad');
+        }
+      },
+    }),
+  );
+  row.append(bar);
+  return row;
+}
+
+function joinRow(r) {
+  const row = el('div', 'person');
+  row.append(
+    el('h3', null, r.name),
+    el(
+      'div',
+      'muted',
+      `asked ${when(r.created_at)} / ${r.platform || 'unknown device'} ${r.app_version || ''} / install ${r.install} / from ${r.address || 'unknown'}`,
+    ),
+  );
+  if (r.note) row.append(el('div', null, `"${r.note}"`));
+  const b = r.asked_before || {},
+    tried = Object.keys(b)
+      .map(k => `${b[k]} ${k}`)
+      .join(', ');
+  row.append(
+    el(
+      'div',
+      'muted',
+      tried
+        ? `This copy of the app asked before: ${tried}.`
+        : 'This copy of the app has not asked before.',
+    ),
+  );
+  const h = r.history;
+  row.append(
+    el(
+      'div',
+      'muted',
+      h
+        ? `Reported by the app: ${h.since ? 'using TOTR since ' + h.since : 'no start date'}${h.plays != null ? ', ' + h.plays + ' plays' : ''}${h.mixtapes != null ? ', ' + h.mixtapes + ' mixtapes' : ''}${h.songs != null ? ', ' + h.songs + ' songs in their library' : ''}.`
+        : 'The app reported nothing about their other server (new user, or they chose not to share).',
+    ),
+  );
+  const boxes = permBoxes([]);
+  row.append(boxes);
+  const bar = el('div', 'bar');
+  bar.append(
+    Object.assign(el('button', null, 'Approve'), {
+      type: 'button',
+      onclick: async () => {
+        try {
+          await call(`/api/admin/join/${r.request_id}/approve`, { permissions: ticked(boxes) });
+          say(`Approved ${r.name}. Their app finishes setting up the account.`, 'ok');
+          load();
+        } catch (e) {
+          say(e.message, 'bad');
+        }
+      },
+    }),
+    Object.assign(el('button', null, 'Decline'), {
+      type: 'button',
+      onclick: async () => {
+        if (!confirm(`Decline ${r.name}? Nothing is created and they are told no.`)) return;
+        try {
+          await call(`/api/admin/join/${r.request_id}/decline`);
+          say('Declined.', 'ok');
+          load();
+        } catch (e) {
+          say(e.message, 'bad');
+        }
+      },
+    }),
+  );
+  row.append(bar);
+  return row;
+}
+
+async function loadJoin() {
+  const r = await apiFetch('/api/admin/join');
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    $('joinList').replaceChildren();
+    $('joinOpen').disabled = true;
+    $('joinNote').textContent =
+      typeof j.detail === 'string' ? j.detail : 'Join requests are not available yet.';
+    return;
+  }
+  $('joinOpen').disabled = false;
+  $('joinOpen').checked = j.open;
+  $('joinNote').textContent = j.requests.length
+    ? ''
+    : j.open
+      ? 'No one is waiting.'
+      : 'Off: apps cannot ask to join.';
+  $('joinList').replaceChildren(...j.requests.map(joinRow));
+}
+$('joinOpen').onchange = async () => {
+  try {
+    await call('/api/admin/join/open', { open: $('joinOpen').checked });
+    say($('joinOpen').checked ? 'People can now ask to join.' : 'Join requests are off.', 'ok');
+    loadJoin();
+  } catch (e) {
+    say(e.message, 'bad');
+    loadJoin();
+  }
+};
+
+async function load() {
+  const data = await (await apiFetch('/api/admin/users')).json();
+  names = data.permission_names;
+  labels = data.permission_labels;
+  enabled = data.permissions_enabled;
+  $('setupNote').textContent = enabled
+    ? ''
+    : 'Permissions are not switched on yet: run sql/user_permissions.sql on your PostgreSQL database. Until then there are just the two roles.';
+  renderInviteForm();
+  loadJoin();
+  const people = $('people');
+  people.replaceChildren(...data.users.map(person), ...data.pending_invites.map(pendingPerson));
+}
+
+$('role').onchange = renderInviteForm;
+$('invite').onclick = async () => {
+  try {
+    const j = await call('/api/admin/invites', {
+      role: $('role').value,
+      permissions: ticked($('invitePerms')),
+    });
+    // the code after # is never sent to the server; the phone app uses it to trust this server's
+    // certificate authority
+    $('linkText').value = location.origin + j.path + (j.code ? '#fp=' + j.code : '');
+    $('link').hidden = false;
+    say('', 'muted');
+    load();
+  } catch (e) {
+    say(e.message, 'bad');
+  }
+};
+$('copy').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($('linkText').value);
+    say('Copied.', 'ok');
+  } catch {
+    $('linkText').select();
+    say('Press Ctrl+C to copy.', 'muted');
+  }
+};
+apiFetch('/api/auth/me')
+  .then(r => r.json())
+  .then(u => {
+    me = u;
+    return load();
+  });
+</script>
+</body>
+</html>

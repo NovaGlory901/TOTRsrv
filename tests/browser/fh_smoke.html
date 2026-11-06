@@ -1,0 +1,220 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>FalseHorizon smoke</title></head>
+<body style="margin:0;background:#111;color:#ccc;font:12px monospace">
+<!-- Loaded by tests/test_visuals.py in headless Edge. Drives the real FalseHorizon engine with a fake analyser, reads real pixels back,
+     and (for looking at the presets) pastes each preset's last frame into a contact sheet. -->
+<canvas id="c" style="width:640px;height:360px;display:block"></canvas>
+<canvas id="sheet" width="1280" height="900"></canvas>
+<pre id="out">pending</pre>
+<script src="../../static/falsehorizon-expr.js"></script>
+<script src="../../static/falsehorizon-presets.js"></script>
+<script src="../../static/falsehorizon-core.js"></script>
+<script src="../../static/falsehorizon.js"></script>
+<script>
+const out = { errors: [], presets: [] };
+window.addEventListener('error', e => out.errors.push(String(e.message)));
+const canvas = document.getElementById('c');
+const sheet = document.getElementById('sheet').getContext('2d');
+sheet.fillStyle = '#000';
+sheet.fillRect(0, 0, 1280, 900);
+
+// capture the WebGL context so frames can be read back right after they are drawn
+let gl = null;
+const realGet = HTMLCanvasElement.prototype.getContext;
+HTMLCanvasElement.prototype.getContext = function (type, opts) {
+  const c = realGet.call(this, type, opts);
+  if (this === canvas && c && type !== '2d') gl = c;
+  return c;
+};
+
+function picture(hue, w, h) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, w, h);
+  g.addColorStop(0, `hsl(${hue},90%,55%)`);
+  g.addColorStop(1, `hsl(${hue + 90},90%,25%)`);
+  x.fillStyle = g;
+  x.fillRect(0, 0, w, h);
+  x.fillStyle = `hsl(${hue + 180},90%,70%)`;
+  x.beginPath();
+  x.arc(w * 0.5, h * 0.5, h * 0.3, 0, 7);
+  x.fill();
+  return c.toDataURL('image/png');
+}
+const urls = [picture(10, 500, 500), picture(160, 800, 450)];
+
+// a fake song: a kick every half second, some mids, a little treble, and a moving waveform
+let fakeOn = true;
+const fake = {
+  frequencyBinCount: 512,
+  fftSize: 1024,
+  context: { sampleRate: 44100 },
+  getByteFrequencyData(a) {
+    const t = performance.now(),
+      pulse = t % 500 < 120 ? 1 : 0.15;
+    for (let i = 0; i < a.length; i++)
+      a[i] = !fakeOn ? 0 : i < 6 ? 120 + 130 * pulse : i < 58 ? 90 : i < 278 ? 50 : 5;
+  },
+  getByteTimeDomainData(a) {
+    const t = performance.now() / 1000;
+    for (let i = 0; i < a.length; i++)
+      a[i] = !fakeOn
+        ? 128
+        : 128 + 60 * Math.sin(i * 0.07 + t * 3) + 30 * Math.sin(i * 0.31 + t * 7);
+  },
+};
+
+let frames = 0,
+  engine = null,
+  thumb = null;
+function sample() {
+  const w = canvas.width,
+    h = canvas.height,
+    px = new Uint8Array(w * h * 4);
+  gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  let lit = 0,
+    sum = 0,
+    hash = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    const l = px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114;
+    sum += l;
+    if (l > 12) lit++;
+  }
+  for (let i = 0; i < px.length; i += 4 * 97)
+    hash = (hash * 31 + px[i] + px[i + 1] * 3 + px[i + 2] * 7) >>> 0;
+  if (thumb) {
+    sheet.drawImage(canvas, thumb[0], thumb[1], 320, 180);
+    sheet.fillStyle = '#fff';
+    sheet.fillText(thumb[2], thumb[0] + 6, thumb[1] + 14);
+    thumb = null;
+  }
+  return { lit: lit / (w * h), mean: sum / (w * h) / 255, hash, glError: gl.getError(), w, h };
+}
+// a timer-driven frame loop (about 60 per second) so the test does not depend on how the browser
+// schedules animation frames
+let pending = new Map(),
+  nextId = 1,
+  wantSample = null;
+window.requestAnimationFrame = cb => {
+  const id = nextId++;
+  pending.set(
+    id,
+    setTimeout(() => {
+      pending.delete(id);
+      cb(performance.now());
+      frames++;
+      if (wantSample && engine.inspect().frames !== wantSample.at) {
+        const w = wantSample.resolve;
+        wantSample = null;
+        w(sample());
+      }
+    }, 16),
+  );
+  return id;
+};
+window.cancelAnimationFrame = id => {
+  clearTimeout(pending.get(id));
+  pending.delete(id);
+};
+const wait = ms => new Promise(r => setTimeout(r, ms));
+// real pixels of the next finished frame
+const grab = () =>
+  new Promise(r => {
+    wantSample = { resolve: r, at: engine.inspect().frames };
+  });
+const finish = () => {
+  document.getElementById('out').textContent = 'RESULT ' + JSON.stringify(out);
+};
+
+(async () => {
+  try {
+    engine = FalseHorizon.create(canvas);
+    out.supported = engine.supported;
+    out.reason = engine.reason;
+    if (!engine.supported) {
+      finish();
+      return;
+    }
+    engine.setAnalyser(fake);
+    engine.setSources(urls);
+    engine.setIntensity(100);
+    engine.setCovers(40);
+    engine.setCalm(false);
+    engine.setAuto(false);
+    const names = engine.list().map(p => p.name);
+    out.names = names;
+    const events = [];
+    engine.onPreset(n => events.push(n));
+    engine.start();
+    // each preset on its own: 2.2 seconds of frames, then real pixels, and a thumbnail on the
+    // contact sheet
+    let n = 0;
+    for (const name of names) {
+      engine.setPreset(name, { instant: true });
+      await wait(2200);
+      thumb = [(n % 4) * 320, Math.floor(n / 4) * 180, name];
+      const s = await grab();
+      s.name = name;
+      s.shown = engine.current();
+      s.gain = engine.inspect().gain;
+      out.presets.push(s);
+      n++;
+    }
+    // changing preset: the picture keeps going and blends
+    engine.setPreset(names[0], { instant: true });
+    await wait(300);
+    engine.setPreset(names[5]);
+    await wait(400);
+    out.fadeMid = {
+      fading: engine.inspect().fading,
+      shown: engine.current(),
+      sample: await grab(),
+    };
+    await wait(3600);
+    out.fadeEnd = {
+      fading: engine.inspect().fading,
+      shown: engine.current(),
+      sample: await grab(),
+    };
+    out.events = events.slice(-2);
+    // silence: the picture still lives (time-driven presets) and nothing breaks
+    fakeOn = false;
+    engine.setAnalyser(null);
+    await wait(800);
+    out.silent = await grab();
+    // locked: auto-cycle must not change the preset
+    engine.setAnalyser(fake);
+    fakeOn = true;
+    const lockedFrom = engine.current();
+    engine.setAuto(true, 10);
+    engine.lock(true);
+    out.lockedFrom = lockedFrom;
+    // next/prev
+    const a = engine.next(),
+      b = engine.next(),
+      back = engine.prev();
+    out.nextPrev = { a, b, back };
+    // calm mode at the same time
+    engine.setCalm(true);
+    await wait(600);
+    out.calm = await grab();
+    engine.setCalm(false);
+    out.inspect = engine.inspect();
+    const before = frames;
+    engine.stop();
+    await wait(400);
+    out.framesAfterStop = frames - before;
+    out.running = engine.running;
+    out.totalFrames = frames;
+    finish();
+  } catch (e) {
+    out.errors.push(String((e && e.stack) || e));
+    finish();
+  }
+})();
+</script>
+</body>
+</html>

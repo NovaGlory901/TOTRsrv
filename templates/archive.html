@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Music Archive | TOTR</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="has-player">
+<div class="screen">
+{{HEADER}}
+<main>
+  <form class="searchbar" id="searchForm" role="search" autocomplete="off">
+    <input id="search" type="search" maxlength="100" placeholder="search artists, albums and songs" aria-label="Search the archive">
+  </form>
+  <div class="breadcrumb" id="breadcrumb" aria-label="Breadcrumb"></div>
+  <div id="content"></div>
+</main>
+{{FOOTER}}
+<div id="now">
+  <button id="prev" aria-label="Previous song">&lt;&lt;</button>
+  <button id="next" aria-label="Next song">&gt;&gt;</button>
+  <button id="addNow" aria-label="Add this song to a mixtape" title="Add this song to a mixtape">+</button>
+  <span class="np" id="np">nothing playing</span>
+  <audio id="player" controls></audio>
+</div>
+</div>
+<dialog id="mixDialog" aria-label="Add to a mixtape"></dialog>
+
+<script>
+// Routes live in the URL hash so the back button and shared links work:
+//   #/                          artists
+//   #/compilations              multi-artist albums
+//   #/artist/7                  one artist: Albums, Singles (loose songs), All songs
+//   #/artist/7/album/3          an album seen from an artist
+//   #/album/3                   an album with no artist context (compilations)
+//   #/search/lo%20fi            search results (artists, albums, songs)
+//   #/mixtapes                  your mixtapes
+//   #/mixtape/4                 one of your mixtapes
+const content = $('content'),
+  crumbs = $('breadcrumb'),
+  player = $('player'),
+  np = $('np');
+
+let queue = [],
+  qi = -1,
+  navId = 0,
+  errorsInARow = 0;
+
+async function api(url) {
+  const r = await apiFetch(url);
+  if (!r.ok) throw new Error(`${url} returned ${r.status}`);
+  return r.json();
+}
+
+function setCrumbs(items) {
+  // items: [{text, href?}]
+  crumbs.replaceChildren();
+  items.forEach((it, i) => {
+    if (i) crumbs.append(' / ');
+    if (it.href) {
+      const a = el('a', null, it.text);
+      a.href = it.href;
+      crumbs.append(a);
+    } else crumbs.append(el('span', null, it.text));
+  });
+}
+
+function tabs(active) {
+  const t = el('div', 'tabs');
+  [
+    ['Artists', '#/', 'artists'],
+    ['Compilations', '#/compilations', 'comp'],
+    ['Mixtapes', '#/mixtapes', 'mix'],
+  ].forEach(([label, href, key]) => {
+    const a = el('a', null, label);
+    a.href = href;
+    if (key === active) a.setAttribute('aria-current', 'true');
+    t.append(a);
+  });
+  const up = el('a', null, '+ Upload');
+  up.href = '/upload';
+  t.append(up);
+  return t;
+}
+
+function card(label, sub, href, placeholder, coverAlbumId) {
+  const a = el('a', 'card');
+  a.href = href;
+  const img = el('div', 'card-image', placeholder);
+  if (coverAlbumId) {
+    const pic = new Image();
+    pic.alt = '';
+    pic.onload = () => img.replaceChildren(pic);
+    pic.src = `/api/albums/${coverAlbumId}/cover`; // on 404 the placeholder simply stays
+  }
+  a.append(img, el('h3', null, label));
+  if (sub) a.append(el('p', 'sub', sub));
+  return a;
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+async function postJson(url, body) {
+  const r = await apiFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof j.detail === 'string' ? j.detail : 'That did not work.');
+  return j;
+}
+
+// add songs to one of your mixtapes
+const dlg = $('mixDialog');
+async function addAll(mixtapeId, ids) {
+  // the server takes 200 at a time
+  let added = 0,
+    skipped = 0;
+  for (let i = 0; i < ids.length; i += 200) {
+    const j = await postJson(`/api/mixtapes/${mixtapeId}/tracks`, {
+      track_ids: ids.slice(i, i + 200),
+    });
+    added += j.added;
+    skipped += j.skipped;
+  }
+  return { added, skipped };
+}
+async function addToMixtape(ids) {
+  ids = [...new Set(ids)];
+  if (!ids.length) return;
+  const msg = el('p', 'muted', 'Loading your mixtapes...');
+  const list = el('div');
+  list.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin:10px 0';
+  const form = el('form');
+  form.style.cssText = 'display:flex;gap:8px;margin:10px 0';
+  const name = el('input');
+  name.type = 'text';
+  name.maxLength = 80;
+  name.placeholder = 'or start a new mixtape';
+  name.setAttribute('aria-label', 'New mixtape name');
+  const make = el('button', null, 'Create');
+  make.type = 'submit';
+  form.append(name, make);
+  const close = el('button', null, 'Close');
+  close.type = 'button';
+  close.onclick = () => dlg.close();
+  dlg.replaceChildren(
+    el('h3', null, `Add ${plural(ids.length, 'song')} to a mixtape`),
+    msg,
+    list,
+    form,
+    close,
+  );
+  const done = (j, label) => {
+    msg.className = 'ok';
+    msg.textContent =
+      `Added ${plural(j.added, 'song')} to "${label}".` +
+      (j.skipped ? ` ${j.skipped} not found.` : '');
+  };
+  form.onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const j = await postJson('/api/mixtapes', { name: name.value, track_ids: ids.slice(0, 200) });
+      const rest =
+        ids.length > 200 ? await addAll(j.mixtape_id, ids.slice(200)) : { added: 0, skipped: 0 };
+      done({ added: j.added + rest.added, skipped: j.skipped + rest.skipped }, j.name);
+      name.value = '';
+      fill();
+    } catch (err) {
+      msg.className = 'bad';
+      msg.textContent = err.message;
+    }
+  };
+  async function fill() {
+    const data = await api('/api/mixtapes');
+    if (!data.enabled) {
+      msg.className = 'warn';
+      msg.textContent = data.setup;
+      form.hidden = true;
+      return;
+    }
+    if (msg.className === 'muted')
+      msg.textContent = data.mixtapes.length
+        ? 'Pick a mixtape:'
+        : 'You have no mixtapes yet. Name one below.';
+    list.replaceChildren(
+      ...data.mixtapes.map(m => {
+        const b = el('button', null, `${m.name} (${m.track_count})`);
+        b.onclick = async () => {
+          try {
+            done(await addAll(m.mixtape_id, ids), m.name);
+            fill();
+          } catch (err) {
+            msg.className = 'bad';
+            msg.textContent = err.message;
+          }
+        };
+        return b;
+      }),
+    );
+  }
+  dlg.showModal();
+  try {
+    await fill();
+  } catch (err) {
+    msg.className = 'bad';
+    msg.textContent = err.message;
+  }
+}
+$('addNow').onclick = () => {
+  if (queue[qi]) addToMixtape([queue[qi].track_id]);
+  else np.textContent = 'play a song first';
+};
+
+function play(list, i) {
+  queue = list;
+  qi = i;
+  const t = list[i];
+  player.src = `/api/tracks/${t.track_id}/audio`;
+  player.play().catch(() => {});
+  np.textContent = '> ' + t.title + (t.artists ? ' - ' + t.artists : '');
+  mark();
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: t.title,
+      artist: t.artists || '',
+    });
+  }
+}
+function next() {
+  if (qi + 1 < queue.length) play(queue, qi + 1);
+  else np.textContent = 'end of list';
+}
+function prev() {
+  if (player.currentTime > 3 || qi <= 0) player.currentTime = 0;
+  else play(queue, qi - 1);
+}
+function mark() {
+  const id = queue[qi]?.track_id;
+  document
+    .querySelectorAll('.track-item')
+    .forEach(r => r.classList.toggle('playing', Number(r.dataset.id) === id));
+}
+trackListening(player, 'archive', () => queue[qi] && queue[qi].track_id);
+player.addEventListener('ended', () => {
+  errorsInARow = 0;
+  next();
+}); // autoplay
+player.addEventListener('playing', () => {
+  errorsInARow = 0;
+});
+player.addEventListener('error', () => {
+  if (qi < 0) return;
+  np.textContent = '! could not play: ' + queue[qi].title;
+  if (++errorsInARow < 5) setTimeout(next, 800); // skip a broken file, but don't spin forever
+});
+$('next').onclick = next;
+$('prev').onclick = prev;
+if ('mediaSession' in navigator) {
+  navigator.mediaSession.setActionHandler('nexttrack', next);
+  navigator.mediaSession.setActionHandler('previoustrack', prev);
+}
+
+function trackList(tracks) {
+  const box = el('div');
+  tracks.forEach((track, i) => {
+    const row = el('div', 'track-item');
+    row.dataset.id = track.track_id;
+    row.tabIndex = 0;
+    const buttons = el('span', 'row-buttons');
+    const add = el('button', null, '+');
+    add.title = add.ariaLabel = `Add "${track.title}" to a mixtape`;
+    add.onclick = e => {
+      e.stopPropagation();
+      addToMixtape([track.track_id]);
+    };
+    add.onkeydown = e => e.stopPropagation();
+    buttons.append(add);
+    row.append(
+      el('span', 'track-number', track.track_number ?? i + 1),
+      el('span', null, track.title),
+      el('span', 'track-artist', track.artists),
+      buttons,
+    );
+    row.onclick = () => play(tracks, i);
+    row.onkeydown = e => {
+      if (e.key === 'Enter') play(tracks, i);
+    };
+    box.append(row);
+  });
+  return box;
+}
+
+function playAllButton(tracks) {
+  const bar = el('div');
+  bar.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px';
+  const b = el('button', null, '> Play all');
+  b.onclick = () => play(tracks, 0);
+  const add = el('button', null, '+ Add all to a mixtape');
+  add.onclick = () => addToMixtape(tracks.map(t => t.track_id));
+  bar.append(b, add);
+  return bar;
+}
+
+async function viewArtists(my) {
+  setCrumbs([{ text: 'Music Archive' }]);
+  const artists = await api('/api/artists');
+  if (my !== navId) return;
+  const grid = el('div', 'grid');
+  artists.forEach(a =>
+    grid.append(
+      card(
+        a.name,
+        plural(a.track_count, 'song'),
+        `#/artist/${a.artist_id}`,
+        '[usr]',
+        a.cover_album_id,
+      ),
+    ),
+  );
+  content.replaceChildren(tabs('artists'), el('h2', null, 'Artists'), grid);
+}
+
+async function viewCompilations(my) {
+  setCrumbs([{ text: 'Music Archive', href: '#/' }, { text: 'Compilations' }]);
+  const albums = await api('/api/compilations');
+  if (my !== navId) return;
+  const grid = el('div', 'grid');
+  albums.forEach(al =>
+    grid.append(
+      card(
+        al.title,
+        `${plural(al.total_tracks, 'song')}, ${al.artist_count} artists`,
+        `#/album/${al.album_id}`,
+        '[disc]',
+        al.album_id,
+      ),
+    ),
+  );
+  const kids = [tabs('comp'), el('h2', null, 'Compilations')];
+  kids.push(albums.length ? grid : el('p', 'muted', 'No compilations yet.'));
+  content.replaceChildren(...kids);
+}
+
+async function viewArtist(id, my) {
+  const [artist, albums, disco, all] = await Promise.all([
+    api(`/api/artists/${id}`),
+    api(`/api/artists/${id}/albums`),
+    api(`/api/artists/${id}/discography`),
+    api(`/api/artists/${id}/songs`),
+  ]);
+  if (my !== navId) return;
+  setCrumbs([{ text: 'Music Archive', href: '#/' }, { text: artist.name }]);
+
+  const kids = [el('h1', null, artist.name), el('h2', null, 'Albums')];
+  if (albums.length) {
+    const grid = el('div', 'grid');
+    albums.forEach(al => {
+      const n =
+        al.their_tracks === al.total_tracks
+          ? plural(al.total_tracks, 'song')
+          : `${al.their_tracks} of ${al.total_tracks} songs`;
+      grid.append(card(al.title, n, `#/artist/${id}/album/${al.album_id}`, '[disc]', al.album_id));
+    });
+    kids.push(grid);
+  } else kids.push(el('p', 'muted', 'No albums.'));
+
+  if (disco.length) {
+    kids.push(
+      el('h2', null, 'Singles'),
+      el('p', 'muted', 'Songs that do not belong to an album, oldest first.'),
+      playAllButton(disco),
+      trackList(disco),
+    );
+  }
+  if (all.length) {
+    // numbered by position, with the album beside the artists, so a song is easy to place
+    const songs = all.map(s => ({
+      ...s,
+      track_number: null,
+      artists: [s.artists, s.album].filter(Boolean).join(' / '),
+    }));
+    kids.push(
+      el('h2', null, 'All songs'),
+      el('p', 'muted', `Every song by ${artist.name}, A to Z.`),
+      playAllButton(songs),
+      trackList(songs),
+    );
+  }
+  content.replaceChildren(...kids);
+  mark();
+}
+
+async function viewAlbum(albumId, artistId, my) {
+  const [album, tracks, artist] = await Promise.all([
+    api(`/api/albums/${albumId}`),
+    api(`/api/albums/${albumId}/tracks`),
+    artistId ? api(`/api/artists/${artistId}`) : null,
+  ]);
+  if (my !== navId) return;
+  const trail = [{ text: 'Music Archive', href: '#/' }];
+  if (artist) trail.push({ text: artist.name, href: `#/artist/${artistId}` });
+  else trail.push({ text: 'Compilations', href: '#/compilations' });
+  trail.push({ text: album.title });
+  setCrumbs(trail);
+
+  const head = el('div');
+  head.style.cssText =
+    'display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px';
+  const cover = el('div', 'card-image', '[disc]');
+  cover.style.cssText = 'width:150px;flex:none';
+  const pic = new Image();
+  pic.alt = '';
+  pic.onload = () => cover.replaceChildren(pic);
+  pic.src = `/api/albums/${albumId}/cover`;
+  const info = el('div');
+  info.append(
+    el('h1', null, album.title),
+    el(
+      'p',
+      'muted',
+      [album.owner, album.year, plural(tracks.length, 'song')].filter(Boolean).join(' / '),
+    ),
+  );
+  head.append(cover, info);
+  content.replaceChildren(head, playAllButton(tracks), trackList(tracks));
+  if (album.credit) content.append(creditLine(album.credit));
+  mark();
+}
+
+// Albums the collector added carry a free license: say which, and where the music came from
+// (links only if the server sent http(s) ones).
+function creditLine(c) {
+  const p = el('p', 'muted');
+  p.style.marginTop = '16px';
+  const link = (text, href) => {
+    const a = el('a', null, text);
+    a.href = href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    return a;
+  };
+  p.append(
+    'Free music',
+    c.source ? ` from ${c.source.replace(/_/g, ' ')}` : '',
+    '. License: ',
+    c.license_url ? link(c.license || c.license_url, c.license_url) : c.license || 'unknown',
+    '.',
+  );
+  if (c.page_url) p.append(' ', link('Original page', c.page_url), '.');
+  if (c.needs_credit && c.attribution) p.append(el('br'), 'Credit: ' + c.attribution);
+  return p;
+}
+
+async function viewSearch(q, my) {
+  setCrumbs([{ text: 'Music Archive', href: '#/' }, { text: 'Search' }]);
+  const r = await api('/api/search?q=' + encodeURIComponent(q));
+  if (my !== navId) return;
+  const kids = [el('h2', null, `Results for "${r.query}"`)];
+  const more = (shown, total) =>
+    shown < total
+      ? el('p', 'muted', `Showing the first ${shown} of ${total}. Type more to narrow it down.`)
+      : null;
+  if (!r.artists.length && !r.albums.length && !r.songs.length)
+    kids.push(el('p', 'muted', 'Nothing found. Punctuation and capital letters do not matter.'));
+  if (r.artists.length) {
+    const grid = el('div', 'grid');
+    r.artists.forEach(a =>
+      grid.append(
+        card(a.name, plural(a.track_count, 'song'), `#/artist/${a.artist_id}`, '[usr]', null),
+      ),
+    );
+    kids.push(el('h2', null, 'Artists'), grid, more(r.artists.length, r.totals.artists));
+  }
+  if (r.albums.length) {
+    const grid = el('div', 'grid');
+    r.albums.forEach(al =>
+      grid.append(
+        card(
+          al.title,
+          [al.owner, plural(al.tracks, 'song')].join(' / '),
+          `#/album/${al.album_id}`,
+          '[disc]',
+          al.album_id,
+        ),
+      ),
+    );
+    kids.push(el('h2', null, 'Albums'), grid, more(r.albums.length, r.totals.albums));
+  }
+  if (r.songs.length) {
+    const songs = r.songs.map((s, i) => ({
+      track_id: s.track_id,
+      title: s.title,
+      track_number: i + 1,
+      artists: [s.artists, s.album].filter(Boolean).join(' / '),
+    }));
+    kids.push(
+      el('h2', null, 'Songs'),
+      playAllButton(songs),
+      trackList(songs),
+      more(songs.length, r.totals.songs),
+    );
+  }
+  content.replaceChildren(...kids.filter(Boolean));
+  mark();
+}
+
+const searchBox = $('search');
+let searchTimer = null;
+searchBox.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    const q = searchBox.value.trim();
+    location.hash = q ? '#/search/' + encodeURIComponent(q) : '#/';
+  }, 250);
+});
+$('searchForm').addEventListener('submit', e => e.preventDefault());
+
+async function viewMixtapes(my) {
+  setCrumbs([{ text: 'Music Archive', href: '#/' }, { text: 'Mixtapes' }]);
+  const data = await api('/api/mixtapes');
+  if (my !== navId) return;
+  const kids = [
+    tabs('mix'),
+    el('h2', null, 'Your mixtapes'),
+    el(
+      'p',
+      'muted',
+      'Playlists only you can see. Add songs with the + buttons on any song, album or the player bar.',
+    ),
+  ];
+  if (!data.enabled) {
+    kids.push(el('p', 'warn', data.setup));
+    content.replaceChildren(...kids);
+    return;
+  }
+  const form = el('form', 'inline');
+  form.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px';
+  const name = el('input');
+  name.type = 'text';
+  name.maxLength = 80;
+  name.placeholder = 'name a new mixtape';
+  name.setAttribute('aria-label', 'New mixtape name');
+  name.style.cssText = 'flex:1 1 220px;width:auto';
+  const make = el('button', null, 'Create');
+  make.type = 'submit';
+  const msg = el('p', null);
+  form.append(name, make);
+  form.onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const j = await postJson('/api/mixtapes', { name: name.value });
+      location.hash = `#/mixtape/${j.mixtape_id}`;
+    } catch (err) {
+      msg.className = 'bad';
+      msg.textContent = err.message;
+    }
+  };
+  const grid = el('div', 'grid');
+  data.mixtapes.forEach(m =>
+    grid.append(
+      card(m.name, plural(m.track_count, 'song'), `#/mixtape/${m.mixtape_id}`, '[tape]', null),
+    ),
+  );
+  kids.push(form, msg, data.mixtapes.length ? grid : el('p', 'muted', 'No mixtapes yet.'));
+  content.replaceChildren(...kids);
+}
+
+async function viewMixtape(id, my) {
+  const m = await api(`/api/mixtapes/${id}`);
+  if (my !== navId) return;
+  setCrumbs([
+    { text: 'Music Archive', href: '#/' },
+    { text: 'Mixtapes', href: '#/mixtapes' },
+    { text: m.name },
+  ]);
+  const msg = el('p', null);
+  const again = () => {
+    if (my === navId) route();
+  };
+  const act = async fn => {
+    try {
+      await fn();
+      again();
+    } catch (err) {
+      msg.className = 'bad';
+      msg.textContent = err.message;
+    }
+  };
+  const head = el('div');
+  head.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px';
+  const rename = el('button', null, 'Rename');
+  rename.onclick = () => {
+    const n = prompt('New name for this mixtape:', m.name);
+    if (n !== null) act(() => postJson(`/api/mixtapes/${id}/rename`, { name: n }));
+  };
+  const del = el('button', null, 'Delete mixtape');
+  del.onclick = async () => {
+    if (!confirm(`Delete the mixtape "${m.name}"? The songs stay in the archive.`)) return;
+    try {
+      await postJson(`/api/mixtapes/${id}/delete`);
+      location.hash = '#/mixtapes';
+    } catch (err) {
+      msg.className = 'bad';
+      msg.textContent = err.message;
+    }
+  };
+  const playable = m.tracks.map(t => ({
+    track_id: t.track_id,
+    title: t.title,
+    artists: t.artists,
+  }));
+  const playAll = el('button', null, '> Play mixtape');
+  playAll.disabled = !playable.length;
+  playAll.onclick = () => play(playable, 0);
+  head.append(playAll, rename, del);
+
+  const box = el('div');
+  m.tracks.forEach((t, i) => {
+    const row = el('div', 'track-item');
+    row.dataset.id = t.track_id;
+    row.tabIndex = 0;
+    const buttons = el('span', 'row-buttons');
+    const mk = (text, label, fn) => {
+      const b = el('button', null, text);
+      b.title = b.ariaLabel = label;
+      b.onclick = e => {
+        e.stopPropagation();
+        fn();
+      };
+      b.onkeydown = e => e.stopPropagation();
+      return b;
+    };
+    const up = mk('^', 'Move earlier', () =>
+      act(() => postJson(`/api/mixtapes/${id}/tracks/${t.entry_id}/move`, { direction: 'up' })),
+    );
+    const down = mk('v', 'Move later', () =>
+      act(() => postJson(`/api/mixtapes/${id}/tracks/${t.entry_id}/move`, { direction: 'down' })),
+    );
+    up.disabled = i === 0;
+    down.disabled = i === m.tracks.length - 1;
+    buttons.append(
+      up,
+      down,
+      mk('x', 'Remove from this mixtape', () =>
+        act(() => postJson(`/api/mixtapes/${id}/tracks/${t.entry_id}/remove`)),
+      ),
+    );
+    row.append(
+      el('span', 'track-number', i + 1),
+      el('span', null, t.title),
+      el('span', 'track-artist', t.artists),
+      buttons,
+    );
+    row.onclick = () => play(playable, i);
+    row.onkeydown = e => {
+      if (e.key === 'Enter') play(playable, i);
+    };
+    box.append(row);
+  });
+  content.replaceChildren(
+    el('h1', null, m.name),
+    el('p', 'muted', plural(m.tracks.length, 'song') + ' / only you can see this'),
+    head,
+    msg,
+    m.tracks.length
+      ? box
+      : el(
+          'p',
+          'muted',
+          'Empty. Add songs with the + buttons on songs, albums and the player bar.',
+        ),
+  );
+  mark();
+}
+
+async function route() {
+  const my = ++navId;
+  const p = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  content.replaceChildren(el('p', 'muted', 'Loading...'));
+  try {
+    if (p[0] !== 'search' && searchBox.value && document.activeElement !== searchBox)
+      searchBox.value = '';
+    if (p[0] === 'search') {
+      const q = decodeURIComponent(p.slice(1).join('/'));
+      if (document.activeElement !== searchBox) searchBox.value = q;
+      await viewSearch(q, my);
+    } else if (p[0] === 'mixtapes') await viewMixtapes(my);
+    else if (p[0] === 'mixtape') await viewMixtape(+p[1], my);
+    else if (p[0] === 'compilations') await viewCompilations(my);
+    else if (p[0] === 'artist' && p[2] === 'album') await viewAlbum(+p[3], +p[1], my);
+    else if (p[0] === 'artist') await viewArtist(+p[1], my);
+    else if (p[0] === 'album') await viewAlbum(+p[1], null, my);
+    else await viewArtists(my);
+  } catch (err) {
+    if (my !== navId) return;
+    content.replaceChildren(el('p', 'bad', `Couldn't load this page: ${err.message}`));
+  }
+}
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>

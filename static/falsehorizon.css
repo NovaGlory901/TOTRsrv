@@ -1,0 +1,127 @@
+/* FalseHorizon's controls. Drawn only with the theme's variables so every theme re-skins them. */
+.fh {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-shadow: none;
+}
+.fh-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+}
+.fh-row[hidden],
+.fh-edit[hidden],
+.fh-lab[hidden] {
+  display: none;
+}
+.fh-lab {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--dim);
+}
+.fh-lab input[type='range'] {
+  width: 130px;
+  accent-color: var(--pink);
+  background: none;
+}
+.fh-lab input[type='checkbox'] {
+  accent-color: var(--pink);
+  width: 18px;
+  height: 18px;
+}
+.fh-val {
+  min-width: 44px;
+  color: var(--fg);
+  text-align: right;
+}
+.fh select,
+.fh input[type='text'],
+.fh textarea {
+  font: inherit;
+  color: var(--fg);
+  background: var(--field-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+}
+.fh select {
+  max-width: 100%;
+  min-width: 180px;
+}
+.fh-btn {
+  font: inherit;
+  padding: 0 12px;
+  min-width: 40px;
+  border-radius: 3px;
+}
+/* drawn icons (see falsehorizon-ui.js) */
+.fh-ico {
+  width: 1em;
+  height: 1em;
+  fill: currentColor;
+  vertical-align: -0.14em;
+}
+.fh-ico.hollow {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.fh-btn[aria-pressed='true'] {
+  color: var(--on-accent);
+  background: var(--cyan);
+  border-color: transparent;
+  text-shadow: none;
+}
+.fh-edit summary {
+  cursor: pointer;
+  color: var(--cyan);
+}
+.fh-code {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.35;
+  resize: vertical;
+}
+.fh-say {
+  min-height: 1.2em;
+  margin: 0;
+}
+.fh-say.bad {
+  color: var(--pink);
+}
+.fh-say.ok {
+  color: var(--cyan);
+}
+.fh-note {
+  margin: 0;
+  color: var(--dim);
+}
+.fh-name {
+  position: absolute;
+  left: 14px;
+  bottom: 12px;
+  padding: 2px 10px;
+  color: var(--fg);
+  background: rgba(var(--bg-deep-rgb), 0.55);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.6s;
+  z-index: 30;
+}
+.fh-name.show {
+  opacity: 0.9;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fh-name {
+    transition: none;
+  }
+}

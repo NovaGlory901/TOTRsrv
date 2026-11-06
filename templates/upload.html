@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Upload | TOTR</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.person {
+  padding: 10px 0 14px;
+  border-bottom: 1px dashed var(--border);
+}
+.person h3 {
+  margin: 0 0 2px;
+  font-size: 24px;
+  overflow-wrap: anywhere;
+}
+.person .bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+</style>
+</head>
+<body>
+<div class="screen">
+{{HEADER}}
+<main>
+  <h1>Upload music</h1>
+  <form id="form" class="panel" autocomplete="off">
+    <div class="row">
+      <label for="files">Audio files (mp3, flac, ogg, opus, m4a, wav): pick a whole album at once</label>
+      <input id="files" name="files" type="file" accept="audio/*" multiple required>
+    </div>
+    <div class="cols">
+      <div class="row"><label for="artist">Artist</label><input id="artist" name="artist" type="text" required></div>
+      <div class="row"><label for="year">Year</label><input id="year" name="year" type="number" min="1900" max="2100"></div>
+    </div>
+    <div class="row"><label for="album">Album (leave blank for loose songs, which go to the artist's Discography)</label><input id="album" name="album" type="text"></div>
+    <div class="row">
+      <label for="cover">Cover art (optional, jpg/png/webp)</label>
+      <input id="cover" name="cover" type="file" accept="image/*">
+    </div>
+    <p class="muted" id="hint">Artist, album and year are read from the file tags when you pick files. Fix them here if they are wrong.</p>
+    <button id="go" type="submit">Upload</button>
+    <p id="result" style="margin:14px 0 0" role="status"></p>
+  </form>
+
+  <div class="panel" id="offersPanel">
+    <h2>Songs people offer</h2>
+    <p class="muted">People can offer songs they saved in their TOTR app. Tick the ones you want and press Take; only those are sent to this library, and the audit log
+       (reports/actions.log) records who took what. Only offer or take songs you are allowed to share.</p>
+    <div id="offerList"></div>
+    <p class="muted" id="offerNote">looking...</p>
+  </div>
+
+  <div class="panel" id="askPanel">
+    <h2>Ask someone for their saved songs</h2>
+    <p class="muted">The person sees your request in their app and chooses whether to share. Nothing is sent unless they say yes.</p>
+    <div class="cols">
+      <div class="row"><label for="askUser">Username</label><input id="askUser" type="text" maxlength="32" autocomplete="off"></div>
+      <div class="row"><label for="askNote">Note (optional)</label><input id="askNote" type="text" maxlength="300" autocomplete="off"></div>
+    </div>
+    <p><button id="askGo" type="button">Ask</button></p>
+    <div id="askList"></div>
+    <p id="askMsg" role="status"></p>
+  </div>
+</main>
+{{FOOTER}}
+</div>
+<script>
+$('files').addEventListener('change', async () => {
+  const fd = new FormData();
+  for (const f of $('files').files) fd.append('files', f);
+  try {
+    const r = await (await apiFetch('/api/upload/inspect', { method: 'POST', body: fd })).json();
+    if (r.artist && !$('artist').value) $('artist').value = r.artist;
+    if (r.album && !$('album').value) $('album').value = r.album;
+    if (r.year && !$('year').value) $('year').value = r.year;
+    $('hint').textContent = `${r.tracks} audio file(s) detected.`;
+  } catch {
+    /* prefill is a convenience only */
+  }
+});
+
+$('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const out = $('result'),
+    btn = $('go');
+  btn.disabled = true;
+  out.className = 'muted';
+  out.textContent = 'uploading...';
+  try {
+    const r = await apiFetch('/api/upload', { method: 'POST', body: new FormData($('form')) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(typeof j.detail === 'string' ? j.detail : 'invalid form data');
+    out.className = 'ok';
+    out.textContent = j.album
+      ? `Added ${j.tracks} track(s) to "${j.album}" by ${j.artist}. `
+      : `Added ${j.tracks} loose song(s) by ${j.artist} to their Discography. `;
+    const a = document.createElement('a');
+    a.href = '/archive';
+    a.textContent = 'Open library';
+    out.appendChild(a);
+    $('form').reset();
+  } catch (err) {
+    out.className = 'bad';
+    out.textContent = 'Failed: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// songs people offer, and asking for songs (A9)
+async function post(path, body) {
+  const r = await apiFetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof j.detail === 'string' ? j.detail : 'Request failed.');
+  return j;
+}
+const mb = n => (n / 1048576).toFixed(n > 10485760 ? 0 : 1) + ' MB';
+const when = v => (v ? new Date(v).toLocaleString() : '');
+const STATE = {
+  offered: 'waiting',
+  accepted: 'taken, waiting for the file',
+  receiving: 'arriving',
+  declined: 'not taken',
+  uploaded: 'added',
+  failed: 'failed',
+};
+
+function offerRow(o) {
+  const row = el('div', 'person');
+  row.append(
+    el('h3', null, `${o.from}${o.asked ? ' (you asked)' : ''}`),
+    el('div', 'muted', `${when(o.created_at)}${o.note ? ' / "' + o.note + '"' : ''}`),
+  );
+  const boxes = [];
+  for (const i of o.items) {
+    const line = el('div', null);
+    if (o.status === 'pending') {
+      // a song that looks like one already here starts unticked
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !(i.library && i.library.level === 'likely');
+      cb.value = i.item_no;
+      boxes.push(cb);
+      const lab = document.createElement('label');
+      lab.append(cb, el('span', null, ` ${i.title}`));
+      line.append(lab);
+    } else line.append(el('span', null, i.title));
+    line.append(
+      el(
+        'span',
+        'muted',
+        `  ${i.artist || 'unknown artist'}${i.album ? ' / ' + i.album : ''} / ${i.ext.slice(1)} ${mb(i.size)}${o.status === 'pending' ? '' : ' / ' + (STATE[i.status] || i.status) + (i.error ? ': ' + i.error : '')}`,
+      ),
+    );
+    if (i.library)
+      line.append(
+        el(
+          'div',
+          'warn',
+          i.library.level === 'likely'
+            ? `Probably already in the library: "${i.library.title}" by ${i.library.artists || 'an unknown artist'}${i.library.album ? ' (' + i.library.album + ')' : ''}.`
+            : `The library has a song with this title by ${i.library.artists || 'an unknown artist'}${i.library.album ? ' (' + i.library.album + ')' : ''}; this may be a different one.`,
+        ),
+      );
+    row.append(line);
+  }
+  if (o.status === 'pending') {
+    const bar = el('div', 'bar');
+    bar.append(
+      Object.assign(el('button', null, 'Take the ticked songs'), {
+        type: 'button',
+        onclick: async () => {
+          const accept = boxes.filter(b => b.checked).map(b => Number(b.value));
+          if (!accept.length && !confirm('Take none of them? The whole offer is declined.')) return;
+          try {
+            const r = await post(`/api/admin/offers/${o.offer_id}/answer`, { accept });
+            $('askMsg').className = 'ok';
+            $('askMsg').textContent =
+              `Took ${r.taken}, declined ${r.declined}. The songs arrive when ${o.from}'s app sends them.`;
+            loadOffers();
+          } catch (e) {
+            $('askMsg').className = 'bad';
+            $('askMsg').textContent = e.message;
+          }
+        },
+      }),
+      Object.assign(el('button', null, 'Decline all'), {
+        type: 'button',
+        onclick: async () => {
+          if (!confirm(`Decline every song in this offer from ${o.from}? Nothing is added.`))
+            return;
+          try {
+            await post(`/api/admin/offers/${o.offer_id}/answer`, { accept: [] });
+            $('askMsg').className = 'ok';
+            $('askMsg').textContent = `Declined the offer from ${o.from}.`;
+            loadOffers();
+          } catch (e) {
+            $('askMsg').className = 'bad';
+            $('askMsg').textContent = e.message;
+          }
+        },
+      }),
+    );
+    row.append(bar);
+  } else
+    row.append(
+      el('div', 'muted', `answered ${when(o.answered_at)} by ${o.answered_by || 'someone'}`),
+    );
+  return row;
+}
+async function loadOffers() {
+  const r = await apiFetch('/api/admin/offers');
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    $('offerList').replaceChildren();
+    $('offerNote').textContent =
+      typeof j.detail === 'string' ? j.detail : 'Offers are not available.';
+    $('askGo').disabled = true;
+    return;
+  }
+  $('offerNote').textContent = j.offers.length ? '' : 'No offers right now.';
+  $('offerList').replaceChildren(...j.offers.map(offerRow));
+  const q = await (await apiFetch('/api/admin/requests')).json().catch(() => ({ requests: [] }));
+  $('askList').replaceChildren(
+    ...(q.requests || []).map(x => {
+      const line = el(
+        'div',
+        'muted',
+        `${x.person}: ${x.status === 'pending' ? 'waiting for an answer' : x.status} (asked by ${x.asked_by}, ${when(x.created_at)}) `,
+      );
+      if (x.status === 'pending')
+        line.append(
+          Object.assign(el('button', null, 'Withdraw'), {
+            type: 'button',
+            onclick: async () => {
+              try {
+                await post(`/api/admin/requests/${x.request_id}/cancel`);
+                loadOffers();
+              } catch (e) {
+                $('askMsg').className = 'bad';
+                $('askMsg').textContent = e.message;
+              }
+            },
+          }),
+        );
+      return line;
+    }),
+  );
+}
+$('askGo').onclick = async () => {
+  try {
+    await post('/api/admin/requests', { username: $('askUser').value, note: $('askNote').value });
+    $('askMsg').className = 'ok';
+    $('askMsg').textContent = 'Asked. They see it in their app.';
+    $('askUser').value = '';
+    $('askNote').value = '';
+    loadOffers();
+  } catch (e) {
+    $('askMsg').className = 'bad';
+    $('askMsg').textContent = e.message;
+  }
+};
+loadOffers();
+setInterval(loadOffers, 20000);
+</script>
+</body>
+</html>

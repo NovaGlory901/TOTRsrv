@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Radio | TOTR</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/dejavuamp.css">
+<link rel="stylesheet" href="/static/falsehorizon.css">
+<style>
+main.wide {
+  max-width: 1400px;
+  padding-bottom: 30px;
+}
+.stage {
+  position: relative;
+  height: calc(100vh - 300px);
+  min-height: 380px;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-deep);
+}
+.stage:fullscreen {
+  height: 100vh;
+  border: none;
+  border-radius: 0;
+}
+.sky {
+  position: absolute;
+  inset: -30%;
+  opacity: 0.5;
+  filter: blur(70px) saturate(1.3);
+  background: conic-gradient(
+    from 0deg at 50% 60%,
+    var(--border),
+    var(--pink),
+    var(--cyan),
+    var(--lilac),
+    var(--border)
+  );
+  animation: spin 120s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.stars {
+  position: absolute;
+  inset: 0;
+  opacity: 0.8;
+  animation: twinkle 5s ease-in-out infinite alternate;
+  background-image:
+    radial-gradient(1px 1px at 20px 30px, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 90px 80px, var(--fg), transparent),
+    radial-gradient(1px 1px at 150px 140px, #bff, transparent),
+    radial-gradient(1px 1px at 60px 170px, #fff, transparent);
+  background-size: 200px 200px;
+}
+@keyframes twinkle {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 0.9;
+  }
+}
+.floor {
+  position: absolute;
+  left: -60%;
+  right: -60%;
+  bottom: 0;
+  height: 50%;
+  transform-origin: bottom;
+  transform: perspective(320px) rotateX(64deg);
+  animation: floor 3s linear infinite;
+  background:
+    linear-gradient(rgba(var(--cyan-rgb), 0.4) 1px, transparent 1px) 0 0 / 100% 42px,
+    linear-gradient(90deg, rgba(var(--pink-rgb), 0.4) 1px, transparent 1px) 0 0 / 64px 100%;
+  -webkit-mask-image: linear-gradient(transparent, #000);
+  mask-image: linear-gradient(transparent, #000);
+}
+@keyframes floor {
+  to {
+    background-position:
+      0 42px,
+      0 0;
+  }
+}
+#layers {
+  position: absolute;
+  inset: 0;
+}
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 45%,
+    rgba(var(--bg-deep-rgb), 0.65) 100%
+  );
+}
+
+.layer {
+  position: absolute;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+img.layer,
+video.layer {
+  max-height: 75%;
+  object-fit: cover;
+  border-radius: 4px;
+  box-shadow: 0 0 30px rgba(var(--pink-rgb), 0.35);
+}
+.orb {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  filter: blur(8px);
+  mix-blend-mode: screen;
+}
+.phrase {
+  font-size: clamp(28px, 5vw, 64px);
+  white-space: nowrap;
+  color: #fff;
+  mix-blend-mode: screen;
+  text-shadow:
+    -3px 0 rgba(var(--pink-rgb), 0.8),
+    3px 0 rgba(var(--cyan-rgb), 0.8),
+    0 0 24px rgba(var(--lilac-rgb), 0.9);
+}
+.phrase.v {
+  writing-mode: vertical-rl;
+}
+.dwin {
+  min-width: 190px;
+  background: rgba(var(--bg2-rgb), 0.8);
+  border: 2px solid var(--lilac);
+  border-radius: 4px;
+  box-shadow:
+    6px 6px 0 rgba(var(--pink-rgb), 0.35),
+    0 0 30px rgba(var(--cyan-rgb), 0.3);
+  text-shadow: none;
+}
+.dbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 1px 8px;
+  color: var(--on-accent);
+  background: linear-gradient(90deg, var(--pink), var(--cyan));
+}
+.dbody {
+  padding: 10px 12px;
+  color: var(--fg);
+}
+
+.intro {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 20px;
+  background: rgba(var(--bg-deep-rgb), 0.55);
+}
+.intro h2 {
+  font-size: clamp(30px, 6vw, 56px);
+  margin: 0;
+}
+.intro h2::before {
+  content: none;
+}
+.intro button {
+  font-size: 28px;
+  padding: 6px 30px;
+}
+.intro[hidden] {
+  display: none;
+}
+
+.strip {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.strip .song {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.strip .song b {
+  font-weight: normal;
+  color: var(--pink);
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strip input[type='range'] {
+  accent-color: var(--pink);
+  width: 110px;
+}
+#viz,
+#viz2 {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  opacity: 0.85;
+}
+/* With FalseHorizon on, the collage is not shown as it is: falsehorizon-scene.js copies it into the visuals, which warp it, and the
+     picture they make is the page. The elements stay in the page (hidden) so their animations keep running. */
+.stage.fh-on #layers {
+  visibility: hidden;
+}
+.stage.fh-on #viz {
+  mix-blend-mode: normal;
+  opacity: 1;
+}
+.strip .grow {
+  flex: 1;
+}
+.settings {
+  margin-top: 14px;
+}
+.settings h2 {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+.sgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px 24px;
+}
+.sgrid label,
+.sgrid .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--dim);
+}
+.sgrid .line {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.sgrid input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  accent-color: var(--pink);
+}
+.sgrid .val {
+  min-width: 74px;
+  text-align: right;
+  color: var(--fg);
+}
+.sgrid select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--field-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+.sgrid input[type='checkbox'] {
+  accent-color: var(--pink);
+  width: 18px;
+  height: 18px;
+}
+.sgrid .nudge {
+  padding: 0 10px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sky,
+  .stars,
+  .floor {
+    animation: none;
+  }
+}
+</style>
+</head>
+<body>
+<div class="screen">
+{{HEADER}}
+<main class="wide">
+  <div class="stage" id="stage">
+    <div class="sky"></div><div class="stars"></div><div class="floor"></div>
+    <div id="layers"></div>
+    <canvas id="viz" aria-hidden="true" hidden></canvas>
+    <canvas id="viz2" aria-hidden="true" hidden></canvas>
+    <div class="fh-name" id="fhName" aria-live="polite"></div>
+    <div class="vignette"></div>
+    <div class="intro" id="intro">
+      <h2>TOTR Radio</h2>
+      <p class="muted">Nonstop music from the archive. Headphones recommended.</p>
+      <button id="tune">Tune in</button>
+      <p class="muted" id="mediaNote"></p>
+    </div>
+  </div>
+
+  <div class="strip">
+    <div class="song"><b id="title">off air</b><span class="muted" id="artist">press Tune in to start</span></div>
+    <button id="prev" hidden aria-label="Previous song (or back to the start of this one)">&lt;&lt; Prev</button>
+    <button id="toggle" hidden>Tune out</button>
+    <button id="skip" hidden>Skip &gt;&gt;</button>
+    <button id="vizToggle" aria-pressed="true">Visuals: on</button>
+    <button id="full">Fullscreen</button>
+    <label class="muted">vol <input id="vol" type="range" min="-60" max="0" step="1" value="-2" aria-label="Volume in decibels"> <span id="volText"></span></label>
+    <button id="gear" aria-expanded="false" aria-controls="settings">DejaVuAmp</button>
+  </div>
+
+  <div class="panel settings" id="settings" hidden>
+    <div id="rack"></div>
+    <h2 style="margin-top:16px">Visuals</h2>
+    <div id="visuals"></div>
+  </div>
+  <audio id="audio"></audio>
+</main>
+{{FOOTER}}
+</div>
+
+<script src="/static/radio-core.js"></script>
+<script src="/static/radio-viz.js"></script>
+<script src="/static/falsehorizon-expr.js"></script>
+<script src="/static/falsehorizon-presets.js"></script>
+<script src="/static/falsehorizon-core.js"></script>
+<script src="/static/falsehorizon-milk.js"></script>
+<script src="/static/falsehorizon.js"></script>
+<script src="/static/falsehorizon-scene.js"></script>
+<script src="/static/falsehorizon-ui.js"></script>
+<script src="/static/dejavuamp-core.js"></script>
+<script src="/static/dejavuamp.js"></script>
+<script src="/static/settings-carryover.js"></script>
+<script>
+const layersEl = $('layers'),
+  audio = $('audio');
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const MAX_LAYERS = reduce ? 5 : 11,
+  MAX_VIDEOS = 2;
+const PHRASES = [
+  'you are here',
+  'nothing is lost',
+  '夢',
+  'remember the internet',
+  'あなたは ここに いる',
+  'the signal is warm',
+  'wake up later',
+  'ｗｅｌｃｏｍｅ ｈｏｍｅ',
+  '00:00 forever',
+  '窓の向こう',
+  'still loading...',
+  'this is a safe place',
+  '再生中',
+  'you were always here',
+  '✦ ✦ ✦',
+  'low battery, high hopes',
+];
+const BLENDS = ['screen', 'lighten', 'soft-light', 'overlay', 'normal', 'difference'];
+
+let mediaPool = [],
+  playedIds = [],
+  on = false,
+  errs = 0,
+  spawner = null,
+  current = null;
+const rnd = (a, b) => a + Math.random() * (b - a);
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
+function drift(e, opacity, ms) {
+  const rot = reduce ? 0 : rnd(-14, 14),
+    dx = reduce ? 0 : rnd(-18, 18),
+    dy = reduce ? 0 : rnd(-14, 14);
+  const anim = e.animate(
+    [
+      { opacity: 0, transform: `translate(0,0) rotate(${rot}deg) scale(.9)` },
+      { opacity, offset: 0.18 },
+      { opacity, offset: 0.8 },
+      {
+        opacity: 0,
+        transform: `translate(${dx}vw,${dy}vh) rotate(${rot + rnd(-10, 10)}deg) scale(${reduce ? 1 : rnd(0.85, 1.3)})`,
+      },
+    ],
+    { duration: ms, easing: 'ease-in-out', fill: 'forwards' },
+  );
+  anim.onfinish = () => {
+    if (e.tagName === 'VIDEO') {
+      e.pause();
+      e.removeAttribute('src');
+      e.load();
+    }
+    e.remove();
+  };
+}
+
+function put(e, widthPct, opacity, ms) {
+  e.classList.add('layer');
+  e.style.left = rnd(-6, 78) + '%';
+  e.style.top = rnd(-6, 68) + '%';
+  e.style.width = widthPct + '%';
+  e.style.zIndex = Math.floor(rnd(1, 9));
+  layersEl.append(e);
+  drift(e, opacity, ms);
+}
+
+function spawnMedia(item, hero) {
+  const w = hero ? rnd(30, 46) : rnd(14, 36);
+  const style = e => {
+    e.style.mixBlendMode = hero ? 'normal' : pick(BLENDS);
+    e.style.filter = `hue-rotate(${Math.floor(rnd(-40, 40))}deg) saturate(${rnd(1, 1.6).toFixed(2)}) blur(${hero ? 0 : rnd(0, 2).toFixed(1)}px)`;
+  };
+  if (item.type === 'video') {
+    if (layersEl.querySelectorAll('video').length >= MAX_VIDEOS) return false;
+    const v = document.createElement('video');
+    v.muted = true;
+    v.loop = true;
+    v.playsInline = true;
+    v.autoplay = true;
+    v.onerror = () => v.remove();
+    v.onloadeddata = () => {
+      style(v);
+      put(v, w, rnd(0.4, 0.75), rnd(18000, 32000));
+      v.play().catch(() => {});
+    };
+    v.src = item.url;
+  } else {
+    const img = new Image();
+    img.alt = '';
+    img.onload = () => {
+      style(img);
+      put(img, w, hero ? 0.85 : rnd(0.35, 0.8), hero ? 26000 : rnd(14000, 28000));
+    };
+    img.src = item.url; // a 404 just means nothing appears
+  }
+  return true;
+}
+
+function spawnOrb() {
+  const o = document.createElement('div');
+  o.className = 'orb';
+  const h = Math.floor(rnd(150, 340));
+  o.dataset.hue = h; // the visuals redraw the orb from this
+  o.style.background = `radial-gradient(circle, hsla(${h},95%,78%,.9), hsla(${h + 40},90%,70%,0) 68%)`;
+  put(o, rnd(16, 38), rnd(0.4, 0.8), rnd(12000, 24000));
+}
+
+function spawnPhrase() {
+  const p = document.createElement('div');
+  const text = pick(PHRASES);
+  p.className = 'phrase' + (/[぀-ヿ一-鿿]/.test(text) && Math.random() < 0.6 ? ' v' : '');
+  p.textContent = text;
+  p.style.width = 'auto';
+  put(p, 0, rnd(0.5, 0.9), rnd(9000, 18000));
+  p.style.width = 'auto';
+}
+
+function spawnWindow() {
+  const w = document.createElement('div');
+  w.className = 'dwin';
+  const bar = document.createElement('div');
+  bar.className = 'dbar';
+  const t = document.createElement('span');
+  t.textContent = (current ? current.title : pick(PHRASES)).slice(0, 26) + '.exe';
+  const x = document.createElement('span');
+  x.textContent = '_ o x';
+  bar.append(t, x);
+  const body = document.createElement('div');
+  body.className = 'dbody';
+  const lines =
+    Math.random() < 0.5 && current
+      ? ['now playing:', current.title, current.artists]
+      : [pick(PHRASES), pick(PHRASES)];
+  lines.forEach(l => {
+    const p = document.createElement('div');
+    p.textContent = l;
+    body.append(p);
+  });
+  w.append(bar, body);
+  put(w, 0, rnd(0.6, 0.9), rnd(10000, 20000));
+  w.style.width = 'auto';
+}
+
+function spawn() {
+  if (layersEl.children.length >= MAX_LAYERS) return;
+  const r = Math.random();
+  if (r < 0.48 && mediaPool.length) {
+    if (spawnMedia(pick(mediaPool), false)) return;
+  }
+  if (r < 0.66) spawnWindow();
+  else if (r < 0.86) spawnPhrase();
+  else spawnOrb();
+}
+
+// audio: DejaVuAmp (volume, speed, 10-band equalizer, balance...) and the visuals: FalseHorizon (or
+// the classic photo-smear)
+const Core = RadioCore,
+  Amp = DejaVuAmpCore,
+  FHCore = FalseHorizonCore;
+const fh = FalseHorizon.create($('viz'));
+fh.setCalm(reduce);
+let classic = null,
+  analyserNow = null,
+  imageUrls = [],
+  nameTimer = null;
+// the old photo-smear: only built if someone picks it
+function classicViz() {
+  if (!classic && window.RadioViz) {
+    classic = RadioViz.create($('viz2'));
+    classic.setCalm(reduce);
+    classic.setSources(imageUrls);
+    if (analyserNow) classic.setAnalyser(analyserNow);
+  }
+  return classic;
+}
+let store = null;
+try {
+  store = window.localStorage;
+} catch (e) {
+  store = null;
+}
+let me = 'guest';
+const history = new Core.SongHistory(200);
+const rack = DejaVuAmp.create({
+  audio,
+  mount: $('rack'),
+  username: me,
+  storage: store,
+  calls: {
+    onPrev: () => prevSong(),
+    onNext: () => {
+      if (on) nextSong();
+    },
+    onToggle: () => $('toggle').click(),
+    isPlaying: () => on && !audio.paused,
+    onChange: () => syncControls(),
+  },
+});
+
+// must first run inside a click: browsers only allow audio to start then
+function ensureGraph() {
+  rack.ensureGraph();
+  const analyser = rack.analyser();
+  if (analyser) {
+    analyserNow = analyser;
+    fh.setAnalyser(analyser);
+    if (classic) classic.setAnalyser(analyser);
+  }
+}
+
+const ui = FalseHorizonUI.create({
+  engine: fh,
+  mount: $('visuals'),
+  username: me,
+  storage: store,
+  calls: {
+    onChange: () => updateViz(),
+    onPreset: name => {
+      // show the preset's name for a few seconds
+      if ($('viz').hidden) return;
+      $('fhName').textContent = name;
+      $('fhName').classList.add('show');
+      clearTimeout(nameTimer);
+      nameTimer = setTimeout(() => $('fhName').classList.remove('show'), 3500);
+    },
+  },
+});
+
+// The collage as an ingredient for FalseHorizon (see falsehorizon-scene.js). If drawing it ever
+// fails, the page goes back to showing it as it is.
+let scene = null,
+  sceneBroken = false;
+function sceneSource() {
+  if (!scene && !sceneBroken && window.FalseHorizonScene)
+    scene = FalseHorizonScene.create(layersEl, {
+      onFail: () => {
+        sceneBroken = true;
+        updateViz();
+      },
+    });
+  return sceneBroken ? null : scene;
+}
+
+function updateViz() {
+  const s = ui.settings(),
+    e = s.mode === 'classic' ? classicViz() : fh,
+    usingFh = e === fh;
+  // Like MilkDrop, the picture keeps moving when the music is paused (it just hears silence): it
+  // only stops when switched off or before the first tune-in.
+  const want = !!(e && e.supported && s.on && rack.analyser());
+  const src = want && usingFh ? sceneSource() : null;
+  fh.setScene(src);
+  $('stage').classList.toggle('fh-on', !!src);
+  $('viz').hidden = !(want && usingFh);
+  $('viz2').hidden = !(want && !usingFh);
+  if (usingFh) {
+    if (classic) classic.stop();
+  } else fh.stop();
+  if (e) {
+    e.setIntensity(s.intensity);
+    if (want) e.start();
+    else e.stop();
+  }
+  $('vizToggle').textContent = 'Visuals: ' + (s.on ? 'on' : 'off');
+  $('vizToggle').setAttribute('aria-pressed', String(s.on));
+  $('vizToggle').disabled = !!e && !e.supported;
+  ui.setStatus(e && !e.supported ? e.reason : !e ? 'The classic visuals could not be loaded.' : '');
+}
+
+function syncControls() {
+  const db = rack.settings().volumeDb;
+  $('vol').value = Math.round(db);
+  $('volText').textContent = Amp.formatDb(db);
+}
+
+$('vol').oninput = e => rack.change({ volumeDb: Number(e.target.value) });
+$('vizToggle').onclick = () => ui.change({ on: !ui.settings().on });
+$('gear').onclick = () => {
+  const open = $('settings').hidden;
+  $('settings').hidden = !open;
+  $('gear').setAttribute('aria-expanded', String(open));
+};
+if (window.matchMedia)
+  matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', e => {
+    fh.setCalm(e.matches);
+    if (classic) classic.setCalm(e.matches);
+  });
+
+// Settings belong to the signed-in person on this browser. Until we know who that is, the
+// defaults apply.
+apiFetch('/api/auth/me')
+  .then(r => r.json())
+  .then(u => {
+    me = u.username;
+    SettingsCarryOver.run(store, [DejaVuAmpCore.storageKey(me), FHCore.storageKey(me)]);
+    const had = (() => {
+      try {
+        return !!store && store.getItem(FHCore.storageKey(me)) !== null;
+      } catch (e) {
+        return false;
+      }
+    })();
+    ui.load(me);
+    // people who ask for less motion get the visuals only if they turn them on
+    if (!had && reduce) ui.change({ on: false });
+    rack.load(me);
+    syncControls();
+    updateViz();
+  })
+  .catch(() => {});
+syncControls();
+updateViz();
+
+function playTrack(t) {
+  current = t;
+  audio.src = `/api/tracks/${t.track_id}/audio`;
+  audio.play().catch(() => {});
+  $('title').textContent = t.title;
+  $('artist').textContent = t.artists || '';
+  rack.setNowPlaying({ title: t.title, artist: t.artists });
+  if (t.album_id) {
+    const cover = `/api/albums/${t.album_id}/cover`;
+    spawnMedia({ type: 'image', url: cover }, true);
+    // the song's own cover is the next picture the visuals use
+    fh.prioritise(cover);
+    if (classic) classic.prioritise(cover);
+  }
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: t.title,
+      artist: t.artists || '',
+    });
+  }
+}
+
+async function nextSong() {
+  // after going back, Next retraces first
+  if (history.canForward()) {
+    playTrack(history.forward());
+    return;
+  }
+  try {
+    const r = await apiFetch('/api/radio/next?exclude=' + playedIds.slice(-40).join(','));
+    if (!r.ok) throw new Error('no songs available (' + r.status + ')');
+    const t = await r.json();
+    if (!on) return;
+    playedIds.push(t.track_id);
+    history.push(t);
+    playTrack(t);
+  } catch (err) {
+    $('title').textContent = 'signal lost';
+    $('artist').textContent = err.message;
+    tuneOut(false);
+  }
+}
+
+// like a CD player: restart this song, or go back to the one before
+function prevSong() {
+  if (!on) return;
+  if (audio.currentTime > 3 || !history.canBack()) {
+    audio.currentTime = 0;
+    return;
+  }
+  playTrack(history.back());
+}
+
+function tuneIn() {
+  on = true;
+  errs = 0;
+  ensureGraph();
+  $('intro').hidden = true;
+  $('toggle').hidden = false;
+  $('skip').hidden = false;
+  $('prev').hidden = false;
+  $('toggle').textContent = 'Tune out';
+  for (let i = 0; i < 4; i++) setTimeout(spawn, i * 400);
+  spawner = setInterval(spawn, reduce ? 4000 : 2200);
+  updateViz();
+  nextSong();
+}
+
+function tuneOut(showIntro = true) {
+  on = false;
+  audio.pause();
+  clearInterval(spawner);
+  $('toggle').textContent = 'Tune in';
+  if (showIntro) $('title').textContent = 'off air';
+  updateViz();
+}
+
+trackListening(audio, 'radio', () => current && current.track_id);
+audio.addEventListener('ended', () => {
+  if (on) nextSong();
+}); // nonstop
+audio.addEventListener('playing', () => {
+  errs = 0;
+});
+audio.addEventListener('play', () => {
+  const c = rack.context();
+  if (c && c.state === 'suspended') c.resume().catch(() => {});
+});
+audio.addEventListener('error', () => {
+  if (!on) return;
+  if (++errs < 5)
+    setTimeout(nextSong, 800); // skip a broken file
+  else {
+    $('title').textContent = 'signal lost';
+    $('artist').textContent = 'several songs in a row would not play';
+    tuneOut(false);
+  }
+});
+
+$('tune').onclick = tuneIn;
+$('toggle').onclick = () => {
+  if (on) tuneOut();
+  else {
+    on = true;
+    errs = 0;
+    ensureGraph();
+    spawner = setInterval(spawn, reduce ? 4000 : 2200);
+    if (audio.src) audio.play().catch(() => {});
+    else nextSong();
+    $('toggle').textContent = 'Tune out';
+    updateViz();
+  }
+};
+$('skip').onclick = () => {
+  if (on) nextSong();
+};
+$('prev').onclick = prevSong;
+$('full').onclick = () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else $('stage').requestFullscreen?.();
+};
+if ('mediaSession' in navigator) {
+  navigator.mediaSession.setActionHandler('nexttrack', () => {
+    if (on) nextSong();
+  });
+  navigator.mediaSession.setActionHandler('previoustrack', prevSong);
+}
+
+apiFetch('/api/radio/media')
+  .then(r => r.json())
+  .then(items => {
+    mediaPool = items;
+    imageUrls = items.filter(m => m.type === 'image').map(m => m.url);
+    fh.setSources(imageUrls);
+    if (classic) classic.setSources(imageUrls);
+    $('mediaNote').textContent = items.length
+      ? `${items.length} pictures and videos in the sky`
+      : 'No pictures or videos found yet. Drop some in the Dream folder on the server.';
+  })
+  .catch(() => {});
+</script>
+</body>
+</html>

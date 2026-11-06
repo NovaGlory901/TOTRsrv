@@ -1,0 +1,27 @@
+# What belongs to one running server, never to the code. (The same rules are in the repository this folder is part of; this file keeps them with the folder
+# if it is ever a repository of its own.)
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.log
+
+# settings, certificates and keys of one machine
+certs/
+
+# the server's own data, music and pictures when run from a checkout
+data/
+music/
+media/
+reports/
+
+# the app installers served at /static/downloads/
+static/downloads/
+
+# a release built by tools/release_tool.py
+dist-release/
+# the web app, sent by TOTRspa's deploy.cjs app (or carried inside a release), never committed
+static/app/
+static/app.new/
+static/app.old/

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Join | TOTR</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="screen">
+{{HEADER}}
+<main>
+  <h1>You're invited</h1>
+  <form id="form" class="panel" style="max-width:460px" autocomplete="off">
+    <p class="muted">Pick a username and a password. Passwords need at least 12 characters; a few random words works well.</p>
+    <div class="row"><label for="username">Username (letters, numbers, . - _)</label>
+      <input id="username" type="text" autocomplete="username" required minlength="3" maxlength="32"
+             autocapitalize="none" spellcheck="false"></div>
+    <div class="row"><label for="password">Password</label>
+      <input id="password" type="password" autocomplete="new-password" required minlength="12" maxlength="128"></div>
+    <div class="row"><label for="again">Password again</label>
+      <input id="again" type="password" autocomplete="new-password" required minlength="12" maxlength="128"></div>
+    <button id="go" type="submit">Create account</button>
+    <p id="msg" style="margin:14px 0 0" role="status"></p>
+  </form>
+</main>
+{{FOOTER}}
+</div>
+<script>
+const token = location.pathname.split('/')[2] || '';
+
+// In the app: a strong password made for this account, filled in for the person; the app remembers
+// it so it never has to be typed.
+if (window.TotrAccounts && window.TotrAccounts.supported())
+  window.TotrAccounts.suggestPassword().then(p => {
+    if (!p || $('password').value) return;
+    $('password').value = p;
+    $('again').value = p;
+    const note = document.createElement('p');
+    note.className = 'muted';
+    note.textContent =
+      'The app made a strong password for you and will remember it, so you never have to type it. You can type your own instead.';
+    $('again').closest('.row').after(note);
+  });
+
+$('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = $('msg'),
+    btn = $('go');
+  if ($('password').value !== $('again').value) {
+    msg.className = 'bad';
+    msg.textContent = 'The two passwords do not match.';
+    return;
+  }
+  btn.disabled = true;
+  msg.className = 'muted';
+  msg.textContent = 'creating your account...';
+  try {
+    const r = await fetch('/api/auth/accept-invite', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, username: $('username').value, password: $('password').value }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok)
+      throw new Error(typeof j.detail === 'string' ? j.detail : 'Could not create the account.');
+    // the app offers to remember it
+    if (window.TotrAccounts)
+      await window.TotrAccounts.save($('username').value, $('password').value);
+    location.href = '/';
+  } catch (err) {
+    msg.className = 'bad';
+    msg.textContent = err.message;
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

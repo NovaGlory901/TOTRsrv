@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Settings | TOTR</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="screen">
+{{HEADER}}
+<main>
+  <h1>Settings</h1>
+  <div class="tabs" id="tabs" role="tablist">
+    <a href="#account" data-tab="account">Account</a>
+    <a href="#appearance" data-tab="appearance">Appearance</a>
+    <a href="#site" data-tab="site" hidden>Site</a>
+  </div>
+
+  <section id="tab-account">
+    <div class="panel" style="max-width:560px">
+      <h2>You</h2>
+      <table class="checks" id="profile"><tr><td>loading...</td></tr></table>
+    </div>
+
+    <form id="form" class="panel" style="max-width:460px" autocomplete="off">
+      <h2>Change password</h2>
+      <div class="row"><label for="current">Current password</label>
+        <input id="current" type="password" autocomplete="current-password" required maxlength="1024"></div>
+      <div class="row"><label for="next">New password (12+ characters)</label>
+        <input id="next" type="password" autocomplete="new-password" required minlength="12" maxlength="128"></div>
+      <div class="row"><label for="again">New password again</label>
+        <input id="again" type="password" autocomplete="new-password" required minlength="12" maxlength="128"></div>
+      <button id="go" type="submit">Change password</button>
+      <p class="muted">This signs you out everywhere else.</p>
+      <p id="msg" role="status"></p>
+    </form>
+
+    <div class="panel" style="max-width:760px">
+      <h2>Devices</h2>
+      <p class="muted">Everywhere you are signed in right now. Sign out a device you do not recognise.</p>
+      <table class="checks" id="devices"></table>
+      <p><button id="all" type="button">Sign out everywhere</button></p>
+      <p id="devMsg" role="status"></p>
+    </div>
+  </section>
+
+  <section id="tab-appearance" hidden>
+    <div class="panel">
+      <h2>Theme</h2>
+      <p class="muted">Pick a look. It is kept in this browser for your account, and applies to every page, the radio included.</p>
+      <div class="themes" id="themes"></div>
+      <p><button id="resetLook" type="button">Back to the default look</button></p>
+    </div>
+
+    <div class="panel" style="max-width:640px">
+      <h2>Screen effects</h2>
+      <div class="row"><label for="fxScan">Scanlines</label>
+        <select id="fxScan"><option value="auto">Whatever the theme says</option><option value="on">On</option><option value="off">Off</option></select></div>
+      <div class="row"><label for="fxGlow">Glow on text</label>
+        <select id="fxGlow"><option value="auto">Whatever the theme says</option><option value="on">On</option><option value="off">Off</option></select></div>
+      <div class="row"><label for="fxMotion">Drifting background</label>
+        <select id="fxMotion"><option value="on">On</option><option value="off">Off</option></select></div>
+      <p class="muted">Your device's "reduce motion" setting always wins over this.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Make your own theme</h2>
+      <p class="muted">Pick the colors, name it, save it. The page checks that your text can be read against the background before it lets you save.</p>
+      <div class="row" style="max-width:420px"><label for="edName">Name</label><input id="edName" type="text" maxlength="30"></div>
+      <div class="row" style="max-width:420px"><label for="edLogo">Logo</label>
+        <select id="edLogo"><option value="text">TOTR_ (text)</option><option value="aperture">Iris mark and TOTR_</option></select></div>
+      <div class="row" style="max-width:420px"><label for="edFrom">Start from</label><select id="edFrom"></select></div>
+      <div class="swatch-row" id="edColors"></div>
+      <p>
+        <button id="edSave" type="button">Save theme</button>
+        <button id="edExport" type="button">Export to a file</button>
+        <button id="edDelete" type="button" hidden>Delete this theme</button>
+      </p>
+      <p id="edMsg" role="status"></p>
+      <h2 style="margin-top:22px">Use a theme file</h2>
+      <p class="muted">Themes exported from here are small <code>.json</code> files you can share. Only files in that format, with plain color values, are accepted.</p>
+      <p><input id="edFile" type="file" accept=".json,application/json" aria-label="Theme file"></p>
+      <p id="impMsg" role="status"></p>
+    </div>
+  </section>
+
+  <section id="tab-site" hidden>
+    <form id="siteForm" class="panel" style="max-width:460px" autocomplete="off" hidden>
+      <h2>Site settings</h2>
+      <div class="row"><label for="contact">Contact email or web address</label>
+        <input id="contact" type="text" maxlength="120" placeholder="name@example.com"></div>
+      <p class="muted">Sent to MusicBrainz, the Internet Archive and other sites in the program's name tag, so they can reach you if it
+        misbehaves. It is not shown to your users. <strong>Optional.</strong> Leave it empty and TOTR looks things up on Deezer, which needs nothing. Fill it in to use MusicBrainz instead (it knows more obscure artists, but asks every program to give contact details). Empty also falls back to <code>COLLECTOR_CONTACT</code> from <code>.env</code>.</p>
+      <p class="muted" id="contactSource"></p>
+      <button id="siteGo" type="submit">Save</button>
+      <p id="siteMsg" role="status"></p>
+    </form>
+    <div class="panel" id="dbLink" hidden>
+      <h2>Database</h2>
+      <p class="muted">Which database TOTR runs on, and how to move to your own PostgreSQL.</p>
+      <p><a class="btn" href="/admin/database">Open the Database page</a></p>
+    </div>
+  </section>
+</main>
+{{FOOTER}}
+</div>
+<script>
+const el = (tag, text, cls) => {
+  const e = document.createElement(tag);
+  if (text !== undefined) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+};
+const row = (...cells) => {
+  const tr = document.createElement('tr');
+  cells.forEach(c => {
+    const td = document.createElement('td');
+    if (c instanceof Node) td.append(c);
+    else td.textContent = c;
+    tr.append(td);
+  });
+  return tr;
+};
+const when = v => (v ? new Date(v).toLocaleString() : 'never');
+const T = window.TOTRTheme;
+let me = { permissions: [], role: 'member' };
+
+function showTab() {
+  const allowed = [...document.querySelectorAll('#tabs a')]
+    .filter(a => !a.hidden)
+    .map(a => a.dataset.tab);
+  const name = allowed.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'account';
+  document.querySelectorAll('#tabs a').forEach(a => {
+    if (a.dataset.tab === name) a.setAttribute('aria-current', 'true');
+    else a.removeAttribute('aria-current');
+  });
+  ['account', 'appearance', 'site'].forEach(n => {
+    $('tab-' + n).hidden = n !== name;
+  });
+}
+window.addEventListener('hashchange', showTab);
+
+const PERM_LABELS = {
+  upload: 'Upload music',
+  collector: 'Use the collector',
+  maintenance: 'Run and approve maintenance',
+  status: 'See the status tab',
+  settings: 'Change site settings',
+  users: 'Manage users',
+};
+function device(ua) {
+  ua = ua || '';
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /OPR\//.test(ua)
+      ? 'Opera'
+      : /Firefox\//.test(ua)
+        ? 'Firefox'
+        : /Chrome\//.test(ua)
+          ? 'Chrome'
+          : /Safari\//.test(ua)
+            ? 'Safari'
+            : 'A browser';
+  const os = /Windows/.test(ua)
+    ? 'Windows'
+    : /Android/.test(ua)
+      ? 'Android'
+      : /iPhone|iPad/.test(ua)
+        ? 'iOS'
+        : /Mac OS/.test(ua)
+          ? 'macOS'
+          : /Linux/.test(ua)
+            ? 'Linux'
+            : '';
+  return os ? `${browser} on ${os}` : browser;
+}
+async function loadAccount() {
+  let a;
+  try {
+    a = await (await apiFetch('/api/account')).json();
+  } catch {
+    $('profile').replaceChildren(row('Could not load your account.'));
+    return;
+  }
+  if (!a.username) {
+    $('profile').replaceChildren(row('Could not load your account.'));
+    return;
+  }
+  const perms =
+    me.role === 'admin'
+      ? 'Everything (admin)'
+      : me.permissions.length
+        ? me.permissions.map(p => PERM_LABELS[p] || p).join(', ')
+        : 'Browse and listen';
+  $('profile').replaceChildren(
+    row('username', a.username),
+    row('role', a.role),
+    row('can do', perms),
+    row('member since', when(a.created_at)),
+    row('last sign-in', when(a.last_login_at)),
+    row('email', 'None stored. TOTR does not need one.'),
+  );
+  const dev = $('devices');
+  dev.replaceChildren();
+  a.sessions.forEach(s => {
+    const act = el('td');
+    if (s.current) act.append(el('span', 'this device', 'ok'));
+    else {
+      const b = el('button', 'Sign out');
+      b.type = 'button';
+      b.addEventListener('click', () => revoke(s.id));
+      act.append(b);
+    }
+    const tr = row(device(s.user_agent), s.ip || '', 'active ' + when(s.last_seen));
+    tr.append(act);
+    dev.append(tr);
+  });
+}
+async function revoke(id) {
+  const r = await apiFetch(`/api/account/sessions/${id}/revoke`, { method: 'POST' });
+  $('devMsg').className = r.ok ? 'ok' : 'bad';
+  $('devMsg').textContent = r.ok ? 'Signed out.' : 'That device is not signed in any more.';
+  loadAccount();
+}
+$('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = $('msg'),
+    btn = $('go');
+  if ($('next').value !== $('again').value) {
+    msg.className = 'bad';
+    msg.textContent = 'The two new passwords do not match.';
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const r = await apiFetch('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current: $('current').value, new: $('next').value }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok)
+      throw new Error(typeof j.detail === 'string' ? j.detail : 'Could not change the password.');
+    // keep the app's remembered password current
+    if (window.TotrAccounts) {
+      const me = document.querySelector('meta[name="totr-user"]');
+      if (me) window.TotrAccounts.save(me.content, $('next').value);
+    }
+    msg.className = 'ok';
+    msg.textContent = 'Password changed.';
+    $('form').reset();
+    loadAccount();
+  } catch (err) {
+    msg.className = 'bad';
+    msg.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+$('all').onclick = async () => {
+  if (!confirm('Sign out of all devices, including this one?')) return;
+  await apiFetch('/api/auth/signout-all', { method: 'POST' });
+  if (window.TotrAccounts) await window.TotrAccounts.signedOut();
+  location.href = '/login';
+};
+
+let editingId = ''; // the custom theme being edited, or '' for a new one
+function swatches(theme) {
+  const s = el('div', undefined, 'sw');
+  ['bg', 'bg2', 'fg', 'pink', 'cyan', 'lilac'].forEach(k => {
+    const i = document.createElement('i');
+    i.style.background = theme.colors[k];
+    s.append(i);
+  });
+  return s;
+}
+function renderThemes() {
+  const box = $('themes'),
+    cur = T.current();
+  box.replaceChildren();
+  T.all().forEach(th => {
+    const b = el('button', undefined, 'theme-card');
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(th.id === cur));
+    b.append(swatches(th), el('span', th.name), el('small', th.builtin ? 'built in' : 'yours'));
+    b.addEventListener('click', () => {
+      T.select(th.id);
+      renderThemes();
+      loadEditor(th);
+    });
+    box.append(b);
+  });
+  const from = $('edFrom');
+  from.replaceChildren();
+  T.all().forEach(th => {
+    const o = el('option', th.name);
+    o.value = th.id;
+    from.append(o);
+  });
+}
+function buildEditorInputs() {
+  const box = $('edColors');
+  T.KEYS.forEach(k => {
+    const l = document.createElement('label'),
+      i = document.createElement('input');
+    i.type = 'color';
+    i.id = 'ed_' + k;
+    i.addEventListener('input', preview);
+    l.append(i, document.createTextNode(T.LABELS[k]));
+    box.append(l);
+  });
+  $('edName').addEventListener('input', () => {});
+  $('edLogo').addEventListener('change', preview);
+  $('edFrom').addEventListener('change', () => loadEditor(T.find($('edFrom').value), true));
+}
+function loadEditor(th, asCopy) {
+  editingId = th.builtin || asCopy ? '' : th.id;
+  $('edName').value = th.builtin || asCopy ? th.name + ' copy' : th.name;
+  $('edLogo').value = th.logo || 'text';
+  T.KEYS.forEach(k => {
+    $('ed_' + k).value = th.colors[k];
+  });
+  $('edDelete').hidden = !editingId;
+  $('edFrom').value = th.id;
+  $('edMsg').textContent = '';
+}
+function draft() {
+  return {
+    name: $('edName').value,
+    logo: $('edLogo').value,
+    colors: Object.fromEntries(T.KEYS.map(k => [k, $('ed_' + k).value])),
+  };
+}
+function preview() {
+  const v = T.validate(draft()),
+    m = $('edMsg');
+  if (v.ok) {
+    T.apply(v.theme);
+    m.className = 'muted';
+    m.textContent = 'Previewing. Save to keep it.';
+  } else {
+    m.className = 'warn';
+    m.textContent = v.error;
+  }
+}
+$('edSave').addEventListener('click', () => {
+  const r = T.saveCustom(draft(), editingId),
+    m = $('edMsg');
+  if (!r.ok) {
+    m.className = 'bad';
+    m.textContent = r.error;
+    return;
+  }
+  editingId = r.id;
+  m.className = 'ok';
+  m.textContent = 'Saved.';
+  renderThemes();
+  $('edDelete').hidden = false;
+});
+$('edDelete').addEventListener('click', () => {
+  if (!editingId || !confirm('Delete this theme?')) return;
+  T.deleteCustom(editingId);
+  renderThemes();
+  loadEditor(T.find(T.current()));
+});
+$('edExport').addEventListener('click', () => {
+  const v = T.validate(draft()),
+    m = $('edMsg');
+  if (!v.ok) {
+    m.className = 'bad';
+    m.textContent = v.error;
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([T.exportTheme(v.theme)], { type: 'application/json' }));
+  a.download =
+    (v.theme.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'theme') + '.totr-theme.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+$('edFile').addEventListener('change', async () => {
+  const f = $('edFile').files[0],
+    m = $('impMsg');
+  if (!f) return;
+  if (f.size > T.MAX_FILE) {
+    m.className = 'bad';
+    m.textContent = 'That file is too big to be a theme.';
+    return;
+  }
+  const v = T.parseImport(await f.text());
+  if (!v.ok) {
+    m.className = 'bad';
+    m.textContent = v.error;
+    $('edFile').value = '';
+    return;
+  }
+  const r = T.saveCustom(v.theme);
+  m.className = r.ok ? 'ok' : 'bad';
+  m.textContent = r.ok ? `Added "${v.theme.name}" and switched to it.` : r.error;
+  $('edFile').value = '';
+  renderThemes();
+  if (r.ok) loadEditor(T.find(r.id));
+});
+$('resetLook').addEventListener('click', () => {
+  T.reset();
+  renderThemes();
+  loadEditor(T.find('dreamspace'));
+  syncEffects();
+});
+
+const tri = v => (v === null ? 'auto' : v ? 'on' : 'off');
+const untri = v => (v === 'auto' ? null : v === 'on');
+function syncEffects() {
+  const d = T.display();
+  $('fxScan').value = tri(d.scanlines);
+  $('fxGlow').value = tri(d.glow);
+  $('fxMotion').value = d.motion === false ? 'off' : 'on';
+}
+$('fxScan').addEventListener('change', () => T.setDisplay({ scanlines: untri($('fxScan').value) }));
+$('fxGlow').addEventListener('change', () => T.setDisplay({ glow: untri($('fxGlow').value) }));
+$('fxMotion').addEventListener('change', () =>
+  T.setDisplay({ motion: $('fxMotion').value === 'on' }),
+);
+
+const SOURCE_TEXT = {
+  settings: 'Currently set here.',
+  env: 'Currently coming from .env (COLLECTOR_CONTACT).',
+  none: 'Not set: the online lookup uses Deezer.',
+};
+function showSite(s) {
+  $('contact').value = s.contact_source === 'settings' ? s.contact : '';
+  $('contactSource').textContent =
+    (s.contact ? `In use: ${s.contact}. ` : '') + SOURCE_TEXT[s.contact_source];
+}
+$('siteForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = $('siteMsg'),
+    btn = $('siteGo');
+  btn.disabled = true;
+  try {
+    const r = await apiFetch('/api/admin/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contact: $('contact').value }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok)
+      throw new Error(typeof j.detail === 'string' ? j.detail : 'Could not save the settings.');
+    showSite(j);
+    msg.className = 'ok';
+    msg.textContent = 'Saved.';
+  } catch (err) {
+    msg.className = 'bad';
+    msg.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+buildEditorInputs();
+renderThemes();
+loadEditor(T.find(T.current()));
+syncEffects();
+apiFetch('/api/auth/me')
+  .then(r => r.json())
+  .then(async u => {
+    me = u;
+    loadAccount();
+    if (!u.permissions.includes('settings') && u.role !== 'admin') return showTab();
+    document.querySelector('#tabs a[data-tab="site"]').hidden = false;
+    $('siteForm').hidden = false;
+    if (u.role === 'admin') $('dbLink').hidden = false;
+    showTab();
+    try {
+      showSite(await (await apiFetch('/api/admin/settings')).json());
+    } catch {
+      $('siteMsg').textContent = 'Could not load the site settings.';
+    }
+  });
+showTab();
+</script>
+</body>
+</html>

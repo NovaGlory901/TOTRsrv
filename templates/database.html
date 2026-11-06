@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Database | TOTR</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.steps {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+}
+.steps li {
+  padding: 3px 0;
+}
+.progress {
+  white-space: pre;
+}
+</style>
+</head>
+<body>
+<div class="screen">
+{{HEADER}}
+<main>
+  <h1>Database</h1>
+  <p class="muted">Where TOTR keeps its accounts, playlists and music list. The report below only looks: it never shows a password.</p>
+
+  <div class="panel">
+    <h2>What TOTR is using now</h2>
+    <p id="dbProblems"></p>
+    <table class="checks" id="dbNow"></table>
+    <table class="checks" id="dbRoles"></table>
+    <p><button id="again" type="button">Check again</button></p>
+  </div>
+
+  <div id="moveBox"></div>
+</main>
+{{FOOTER}}
+</div>
+<script>
+const cell = (tr, ...vals) => {
+  vals.forEach(v => {
+    const td = document.createElement('td');
+    if (v instanceof Node) td.append(v);
+    else td.textContent = v;
+    tr.append(td);
+  });
+  return tr;
+};
+const mark = (ok, text) => {
+  const s = document.createElement('span');
+  s.className = ok ? 'ok' : 'bad';
+  s.textContent = (ok ? '✓ ' : '✗ ') + text;
+  return s;
+};
+const kb = n =>
+  n == null
+    ? ''
+    : n > 1048576
+      ? (n / 1048576).toFixed(1) + ' MB'
+      : Math.max(1, Math.round(n / 1024)) + ' KB';
+
+async function load() {
+  const now = $('dbNow'),
+    roles = $('dbRoles'),
+    problems = $('dbProblems');
+  now.replaceChildren();
+  roles.replaceChildren();
+  problems.replaceChildren();
+  let r;
+  try {
+    r = await (await apiFetch('/api/admin/database')).json();
+  } catch {
+    problems.textContent = 'Could not load the database report.';
+    return;
+  }
+  if (r.engine === 'sqlite') {
+    now.append(
+      cell(document.createElement('tr'), 'engine', 'the built-in local database (SQLite)'),
+    );
+    now.append(cell(document.createElement('tr'), 'file', r.path));
+    now.append(
+      cell(
+        document.createElement('tr'),
+        'size',
+        kb(r.size_bytes) || 'not created yet (it is made the first time TOTR needs it)',
+      ),
+    );
+    now.append(
+      cell(document.createElement('tr'), 'SQLite version', mark(r.sqlite_ok, r.sqlite_version)),
+    );
+    now.append(
+      cell(
+        document.createElement('tr'),
+        'layout version',
+        r.schema_version == null
+          ? 'will be set on first use'
+          : mark(r.schema_version === r.expected_version, String(r.schema_version)),
+      ),
+    );
+  } else {
+    now.append(cell(document.createElement('tr'), 'engine', 'PostgreSQL'));
+    now.append(
+      cell(
+        document.createElement('tr'),
+        'server',
+        `${r.host || ''}:${r.port} / ${r.database || ''}`,
+      ),
+    );
+    now.append(cell(document.createElement('tr'), 'encryption', r.sslmode));
+    now.append(
+      cell(
+        document.createElement('tr'),
+        'version',
+        r.server_version
+          ? String(Math.floor(r.server_version / 10000)) + '.' + (r.server_version % 10000)
+          : 'unknown',
+      ),
+    );
+    now.append(
+      cell(
+        document.createElement('tr'),
+        'role setup',
+        r.single_role ? 'one role for everything' : 'separate limited roles',
+      ),
+    );
+    (r.roles || []).forEach(x => {
+      const what = !x.configured
+        ? mark(false, 'not set in .env (feature off)')
+        : !x.connects
+          ? mark(false, 'cannot connect' + (x.error ? ` (${x.error})` : ''))
+          : (() => {
+              const d = document.createElement('div');
+              x.checks.forEach(c => {
+                const p = document.createElement('div');
+                p.append(mark(c.ok, c.what + (c.why ? ` (${c.why})` : '')));
+                d.append(p);
+              });
+              return d;
+            })();
+      roles.append(cell(document.createElement('tr'), x.label, what));
+    });
+  }
+  if ((r.problems || []).length)
+    r.problems.forEach(t => {
+      const p = document.createElement('div');
+      p.className = 'bad';
+      p.textContent = t;
+      problems.append(p);
+    });
+  else {
+    problems.className = 'ok';
+    problems.textContent = 'Everything checks out.';
+  }
+}
+
+// The administrator's password is typed here, held in this variable only, sent over HTTPS to the
+// server, and handed to a one-time helper. It is never stored.
+let moveStep = 'start',
+  adminPw = '',
+  expectRestart = false,
+  movePoll = null,
+  moveLast = null;
+const form = { host: '', port: '', name: 'totr', ssl: '', roles: 'several', adm: 'postgres' };
+const STAGES = [
+  'database and roles made',
+  'layout built',
+  'copying',
+  'counting both sides',
+  'checking the new accounts',
+  'switching TOTR over',
+];
+const STAGE_TEXT = {
+  'database and roles made': 'database and roles made',
+  'layout built': 'layout built (the same media and totr layout as every TOTR)',
+  copying: 'copying songs, accounts and playlists',
+  'counting both sides': 'counting both sides',
+  'checking the new accounts': 'checking that each new account can do its job',
+  'switching TOTR over': 'switching TOTR over and restarting',
+};
+
+const mk = (tag, cls, text) => el(tag, cls, text);
+function movePanel(title, ...kids) {
+  const d = mk('div', 'panel');
+  d.append(mk('h2', '', title), ...kids);
+  return d;
+}
+function mbtn(text, fn) {
+  const b = mk('button', '', text);
+  b.type = 'button';
+  b.addEventListener('click', fn);
+  return b;
+}
+function buttons(...bs) {
+  const p = mk('p');
+  bs.forEach((b, i) => {
+    if (i) p.append(' ');
+    p.append(b);
+  });
+  return p;
+}
+function table(rows) {
+  const t = mk('table', 'checks');
+  rows.forEach(r => t.append(cell(document.createElement('tr'), ...r)));
+  return t;
+}
+function formRow(label, input, hint) {
+  const r = mk('div', 'row');
+  const l = mk('label', '', label);
+  if (hint) l.append(' ', mk('span', 'muted', hint));
+  l.htmlFor = input.id;
+  r.append(l, input);
+  return r;
+}
+function input(id, value, type = 'text', max = 200, placeholder = '') {
+  const i = document.createElement('input');
+  i.id = id;
+  i.type = type;
+  i.value = value;
+  i.maxLength = max;
+  i.placeholder = placeholder;
+  i.autocomplete = 'off';
+  return i;
+}
+function select(id, options, value) {
+  const s = document.createElement('select');
+  s.id = id;
+  options.forEach(([v, text]) => {
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = text;
+    s.append(o);
+  });
+  s.value = value;
+  return s;
+}
+const body = () => ({
+  host: form.host,
+  port: form.port,
+  dbname: form.name,
+  sslmode: form.ssl,
+  roles: form.roles,
+  admin_user: form.adm,
+  admin_password: adminPw,
+});
+const jsonPost = (url, data) =>
+  apiFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data || {}),
+  });
+async function detail(r) {
+  try {
+    return (await r.json()).detail || 'That did not work.';
+  } catch {
+    return 'That did not work.';
+  }
+}
+
+function startPanel() {
+  const ul = mk('ul', 'steps');
+  [
+    'a PostgreSQL 14 or newer server that this machine can reach',
+    'a database account that may create databases and roles (used for this one move, never saved)',
+    'a few minutes. Uploads and the collector pause while it copies, and everyone is signed out afterwards',
+  ].forEach(x => ul.append(mk('li', '', '• ' + x)));
+  return movePanel(
+    'Move to PostgreSQL',
+    mk(
+      'p',
+      'muted',
+      'The built-in database is fine for a home server. If you outgrow it, this copies everything to a PostgreSQL server of your own and switches TOTR over. Your built-in database file is kept as a backup and never deleted by TOTR.',
+    ),
+    mk('h3', '', 'What you need'),
+    ul,
+    mk('p', 'muted', 'Your music files are not moved: they stay where they are.'),
+    buttons(
+      mbtn('Start', () => {
+        moveStep = 'connect';
+        drawMove(moveLast);
+      }),
+    ),
+  );
+}
+
+function connectPanel(s, checks) {
+  const p = movePanel('Move to PostgreSQL: where to?');
+  if (s.private_channel === false)
+    p.append(
+      mk(
+        'p',
+        'bad',
+        '✗ This page is not on https, so the administrator password would cross the network in the clear. Open TOTR over https (or on the server itself) to continue.',
+      ),
+    );
+  const f = {
+    host: input('mvHost', form.host, 'text', 200, 'db.example.org'),
+    port: input('mvPort', form.port, 'text', 5, '5432'),
+    name: input('mvName', form.name, 'text', 41, 'totr'),
+    ssl: select(
+      'mvSsl',
+      [
+        ['', 'automatic (required unless a socket)'],
+        ['require', 'require'],
+        ['verify-full', 'verify-full'],
+        ['disable', 'disable'],
+      ],
+      form.ssl,
+    ),
+    roles: select(
+      'mvRoles',
+      [
+        ['several', 'several limited roles (recommended)'],
+        ['single', 'one role for everything (simple, less isolated)'],
+      ],
+      form.roles,
+    ),
+    adm: input('mvAdm', form.adm, 'text', 63),
+    pw: input('mvPw', adminPw, 'password', 500),
+  };
+  const save = () => {
+    form.host = f.host.value.trim();
+    form.port = f.port.value.trim();
+    form.name = f.name.value.trim();
+    form.ssl = f.ssl.value;
+    form.roles = f.roles.value;
+    form.adm = f.adm.value.trim();
+    adminPw = f.pw.value;
+  };
+  p.append(
+    formRow('Server address (or a socket path starting with /)', f.host),
+    formRow('Port', f.port),
+    formRow(
+      'Name for the new database (made if it does not exist; letters, digits, underscores)',
+      f.name,
+    ),
+    formRow('Encryption', f.ssl),
+    formRow('Accounts', f.roles),
+    formRow('Database administrator account', f.adm),
+    formRow('Its password', f.pw, '(used for this move only; TOTR does not save it)'),
+  );
+  const out = mk('div');
+  const test = mbtn('Test the connection', async () => {
+    save();
+    out.replaceChildren(mk('p', 'muted', 'Testing...'));
+    test.disabled = true;
+    try {
+      const r = await jsonPost('/api/admin/database/move/test', body());
+      if (!r.ok) {
+        out.replaceChildren(mk('p', 'bad', '✗ ' + (await detail(r))));
+        return;
+      }
+      drawChecks(out, await r.json());
+    } catch {
+      out.replaceChildren(mk('p', 'bad', '✗ Could not reach the server.'));
+    } finally {
+      test.disabled = false;
+    }
+  });
+  p.append(
+    buttons(
+      test,
+      mbtn('Cancel', () => {
+        adminPw = '';
+        moveStep = 'start';
+        drawMove(moveLast);
+      }),
+    ),
+    out,
+  );
+  if (checks) drawChecks(out, checks);
+  return p;
+}
+
+function drawChecks(out, r) {
+  const ul = mk('ul', 'steps');
+  (r.checks || []).forEach(c =>
+    ul.append(
+      mk(
+        'li',
+        c.ok ? (c.warn ? 'warn' : 'ok') : 'bad',
+        (c.ok ? (c.warn ? '> ' : '✓ ') : '✗ ') + c.what + (c.why ? ': ' + c.why : ''),
+      ),
+    ),
+  );
+  out.replaceChildren(ul);
+  if (r.message) out.append(mk('p', 'bad', '✗ ' + r.message));
+  if (r.ok)
+    out.append(
+      buttons(
+        mbtn('Continue', () => {
+          moveStep = 'ready';
+          drawMove(moveLast);
+        }),
+      ),
+    );
+}
+
+function readyPanel(s) {
+  const c = s.counts || {};
+  const p = movePanel(
+    'Ready to copy',
+    table([
+      ['artists', String(c.artists ?? '')],
+      ['albums', String(c.albums ?? '')],
+      ['songs', String(c.songs ?? '')],
+      ['accounts', String(c.accounts ?? '')],
+      ['playlists (mixtapes)', String(c.playlists ?? '')],
+    ]),
+    mk(
+      'p',
+      'warn',
+      'While it copies, uploads and the collector are paused, and everyone is signed out when it is done (they sign in again with the same names and passwords). It takes about a minute.',
+    ),
+  );
+  const go = mode => async () => {
+    if (
+      mode === 'move' &&
+      !confirm(
+        'Copy everything to ' +
+          form.host +
+          ' and switch TOTR over? TOTR restarts, and everyone is signed out.',
+      )
+    )
+      return;
+    mvDone = false;
+    const r = await jsonPost('/api/admin/database/move/start', { ...body(), mode });
+    adminPw = '';
+    if (!r.ok) {
+      p.append(mk('p', 'bad', '✗ ' + (await detail(r))));
+      return;
+    }
+    expectRestart = mode === 'move';
+    refreshMove();
+  };
+  p.append(
+    buttons(
+      mbtn('Copy everything', go('move')),
+      mbtn('Rehearse first (changes nothing)', go('rehearse')),
+      mbtn('Cancel', () => {
+        adminPw = '';
+        moveStep = 'start';
+        drawMove(moveLast);
+      }),
+    ),
+  );
+  return p;
+}
+
+function runningPanel(s) {
+  const rehearsing = s.mode === 'rehearse',
+    list = mk('ul', 'steps');
+  const names = rehearsing ? STAGES.slice(0, 4) : STAGES,
+    doing = new Map((s.steps || []).map(x => [x.name, x.state]));
+  names.forEach(n => {
+    const st = doing.get(n);
+    list.append(
+      mk(
+        'li',
+        st === 'done' ? 'ok' : st === 'doing' ? '' : 'muted',
+        (st === 'done' ? '✓ ' : st === 'doing' ? '> ' : '· ') + STAGE_TEXT[n],
+      ),
+    );
+  });
+  const filled = Math.round((22 * (s.percent || 0)) / 100);
+  return movePanel(
+    rehearsing ? 'Rehearsing the move (nothing is kept)' : 'Copying to PostgreSQL',
+    mk(
+      'p',
+      'progress',
+      '[' +
+        '#'.repeat(filled) +
+        '.'.repeat(22 - filled) +
+        ']  ' +
+        String(s.percent || 0).padStart(2) +
+        '%',
+    ),
+    list,
+    mk('p', 'muted', 'You can leave this page. Nothing is switched until every count matches.'),
+  );
+}
+
+function countsTable(r) {
+  const rows = [['', mk('span', 'muted', 'was (SQLite) → now (PostgreSQL)')]];
+  Object.keys(r.before || {}).forEach(k => {
+    const same = r.before[k] === (r.after || {})[k];
+    const d = mk('span');
+    d.append(mark(same, ''));
+    d.append(`${r.before[k]} → ${(r.after || {})[k]}`);
+    rows.push([k, d]);
+  });
+  return table(rows);
+}
+
+function donePanel(s) {
+  const r = s.result || {};
+  if (r.rehearsal) {
+    return movePanel(
+      'The rehearsal worked',
+      countsTable(r),
+      mk(
+        'p',
+        'ok',
+        '✓ Everything copied and every count matched. Nothing was kept: TOTR still uses the built-in database, exactly as before.',
+      ),
+      buttons(
+        mbtn('Copy everything for real', () => {
+          moveStep = 'connect';
+          mvDone = false;
+          refreshMove(true);
+        }),
+        mbtn('Close', dismiss),
+      ),
+    );
+  }
+  const p = movePanel(
+    'Moved to PostgreSQL',
+    countsTable(r),
+    mk(
+      'p',
+      'ok',
+      '✓ TOTR now uses PostgreSQL. The new passwords for the limited roles are in .env (readable by its owner only); nothing else holds them.',
+    ),
+  );
+  p.append(
+    mk(
+      'p',
+      '',
+      'Your old database file is kept, untouched, as ' +
+        (r.kept_file || 'totr.db.before-postgres') +
+        '. Delete it yourself when you are sure.',
+    ),
+  );
+  if (r.env_backup)
+    p.append(mk('p', 'muted', 'The settings that were replaced are in ' + r.env_backup + '.'));
+  p.append(mk('p', 'muted', 'Everyone was signed out; they sign in again.'));
+  if (s.restart === 'manual')
+    p.append(
+      mk(
+        'p',
+        'warn',
+        'TOTR is not running under a service manager, so it cannot restart itself: stop it and start it again now. Until then it refuses to change anything.',
+      ),
+    );
+  if (s.engine === 'postgres') p.append(buttons(mbtn('Hide this report', dismiss)));
+  return p;
+}
+
+function failedPanel(s) {
+  return movePanel(
+    'The move did not finish, and nothing was changed',
+    mk('p', 'bad', '✗ ' + (s.message || 'It did not finish.')),
+    mk(
+      'p',
+      'ok',
+      '✓ TOTR is still using the built-in database, exactly as before. Whatever was half-made on the PostgreSQL side was removed.',
+    ),
+    mk('p', 'muted', 'Nothing was switched. Try again, or look at journalctl -u totr.'),
+    buttons(
+      mbtn('Try again', async () => {
+        await jsonPost('/api/admin/database/move/dismiss');
+        moveStep = 'connect';
+        refreshMove(true);
+      }),
+    ),
+  );
+}
+
+let mvDone = false;
+async function dismiss() {
+  await jsonPost('/api/admin/database/move/dismiss');
+  moveStep = 'start';
+  refreshMove(true);
+}
+
+function drawMove(s) {
+  moveLast = s;
+  const box = $('moveBox');
+  box.replaceChildren();
+  if (!s) return;
+  if (s.stage === 'running') box.append(runningPanel(s));
+  else if (s.stage === 'failed') box.append(failedPanel(s));
+  else if (s.result && !mvDone) box.append(donePanel(s));
+  else if (s.engine === 'sqlite')
+    box.append(
+      moveStep === 'start'
+        ? startPanel()
+        : moveStep === 'connect'
+          ? connectPanel(s)
+          : readyPanel(s),
+    );
+}
+
+async function refreshMove() {
+  clearTimeout(movePoll);
+  let s = null;
+  try {
+    const r = await apiFetch('/api/admin/database/move');
+    if (r.ok) s = await r.json();
+  } catch {
+    /* the server may be restarting */
+  }
+  if (s) {
+    if (expectRestart && s.engine === 'postgres') {
+      expectRestart = false;
+      load();
+    }
+    drawMove(s);
+  } else if (expectRestart) {
+    $('moveBox').replaceChildren(
+      movePanel(
+        'Waiting for TOTR to restart',
+        mk(
+          'p',
+          'muted',
+          'TOTR is restarting on PostgreSQL. This page reconnects by itself; you will be asked to sign in again.',
+        ),
+      ),
+    );
+  }
+  const busy =
+    (s && s.stage === 'running') ||
+    (!s && expectRestart) ||
+    (s && s.stage === 'done' && expectRestart && s.engine === 'sqlite');
+  if (busy) movePoll = setTimeout(refreshMove, 2000);
+}
+$('again').addEventListener('click', load);
+load();
+refreshMove();
+</script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>viz smoke</title></head>
+<body style="margin:0;background:#000">
+<!-- Loaded by tests/test_radio.py in headless Edge. Drives the real visualizer with a fake analyser and reads real pixels back. -->
+<canvas id="c" style="width:640px;height:360px"></canvas>
+<pre id="out">pending</pre>
+<script src="../../static/radio-core.js"></script>
+<script src="../../static/radio-viz.js"></script>
+<script>
+const out = { errors: [] };
+window.addEventListener('error', e => out.errors.push(String(e.message)));
+const canvas = document.getElementById('c');
+
+// capture the WebGL context so frames can be read back right after they are drawn
+let gl = null;
+const realGet = HTMLCanvasElement.prototype.getContext;
+HTMLCanvasElement.prototype.getContext = function (type, opts) {
+  const c = realGet.call(this, type, opts);
+  if (this === canvas && c && type !== '2d') gl = c;
+  return c;
+};
+
+// pictures: three drawn gradients with shapes (no files needed)
+function picture(hue, w, h) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, w, h);
+  g.addColorStop(0, `hsl(${hue},90%,55%)`);
+  g.addColorStop(1, `hsl(${hue + 90},90%,25%)`);
+  x.fillStyle = g;
+  x.fillRect(0, 0, w, h);
+  x.fillStyle = `hsl(${hue + 180},90%,70%)`;
+  x.beginPath();
+  x.arc(w * 0.5, h * 0.5, h * 0.3, 0, 7);
+  x.fill();
+  x.fillStyle = '#fff';
+  for (let i = 0; i < 12; i++) x.fillRect((i * 53) % w, (i * 97) % h, 30, 8);
+  return c.toDataURL('image/png');
+}
+const urls = [picture(10, 500, 500), picture(160, 800, 450), picture(300, 300, 600)];
+
+const fake = {
+  frequencyBinCount: 512,
+  context: { sampleRate: 44100 },
+  getByteFrequencyData(a) {
+    const t = performance.now(),
+      pulse = t % 500 < 120 ? 1 : 0.15; // a beat every half second
+    for (let i = 0; i < a.length; i++)
+      a[i] = i < 6 ? 120 + 130 * pulse : i < 58 ? 90 : i < 278 ? 50 : 5;
+  },
+};
+
+const samples = [];
+let frames = 0,
+  phase = 'normal',
+  viz = null;
+function sample() {
+  const w = canvas.width,
+    h = canvas.height,
+    px = new Uint8Array(w * h * 4);
+  gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  let lit = 0,
+    sum = 0,
+    hash = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    const l = (px[i] + px[i + 1] + px[i + 2]) / 3;
+    sum += l;
+    if (l > 12) lit++;
+  }
+  for (let i = 0; i < px.length; i += 4 * 97)
+    hash = (hash * 31 + px[i] + px[i + 1] * 3 + px[i + 2] * 7) >>> 0;
+  samples.push({
+    phase,
+    frame: frames,
+    lit: lit / (w * h),
+    mean: sum / (w * h),
+    hash,
+    glError: gl.getError(),
+    w,
+    h,
+  });
+}
+// a timer-driven frame loop (about 60 per second) so the test does not depend on how the browser
+// schedules animation frames
+const realCancel = window.cancelAnimationFrame.bind(window);
+let pending = new Map(),
+  nextId = 1;
+window.requestAnimationFrame = cb => {
+  const id = nextId++;
+  pending.set(
+    id,
+    setTimeout(() => {
+      pending.delete(id);
+      cb(performance.now());
+      frames++;
+      if (viz && viz.running && gl && frames % 12 === 0) sample();
+    }, 16),
+  );
+  return id;
+};
+window.cancelAnimationFrame = id => {
+  clearTimeout(pending.get(id));
+  pending.delete(id);
+};
+
+try {
+  viz = RadioViz.create(canvas);
+  out.supported = viz.supported;
+  out.reason = viz.reason;
+  if (viz.supported) {
+    viz.setAnalyser(fake);
+    viz.setSources(urls);
+    viz.setIntensity(100);
+    viz.setCalm(false);
+    viz.start();
+    setTimeout(() => {
+      phase = 'calm';
+      viz.setCalm(true);
+    }, 3500);
+    setTimeout(() => {
+      phase = 'silent';
+      viz.setCalm(false);
+      viz.setAnalyser(null);
+    }, 5500);
+    setTimeout(() => {
+      const before = frames;
+      viz.stop();
+      setTimeout(() => {
+        out.framesAfterStop = frames - before;
+        out.running = viz.running;
+        out.samples = samples;
+        out.totalFrames = frames;
+        document.getElementById('out').textContent = 'RESULT ' + JSON.stringify(out);
+      }, 400);
+    }, 7000);
+  } else document.getElementById('out').textContent = 'RESULT ' + JSON.stringify(out);
+} catch (e) {
+  out.errors.push(String((e && e.message) || e));
+  document.getElementById('out').textContent = 'RESULT ' + JSON.stringify(out);
+}
+</script>
+</body>
+</html>

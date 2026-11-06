@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Get the app | TOTR</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+/* On a phone each installer is a short block (name, then link, then how) instead of two squeezed columns. Only this page: the shared table style is used elsewhere. */
+@media (max-width: 560px) {
+  #dlTable,
+  #dlTable tbody,
+  #dlTable tr,
+  #dlTable td {
+    display: block;
+    width: auto;
+  }
+  #dlTable td {
+    border-bottom: 0;
+    padding: 2px 0;
+  }
+  #dlTable td:first-child {
+    white-space: normal;
+    width: auto;
+    padding-top: 12px;
+  }
+  #dlTable td:empty {
+    display: none;
+  }
+  #steps {
+    padding-left: 20px;
+  }
+}
+</style>
+</head>
+<body>
+<div class="screen">
+{{HEADER}}
+<main>
+  <h1>Get the app</h1>
+  <div class="panel">
+    <p>The newest TOTR app for your device. Once it is installed it updates itself, so you only need this page the first time.</p>
+    <h2 id="forYou" hidden></h2>
+    <table class="checks" id="dlTable"></table>
+    <ol id="steps" hidden></ol>
+    <p class="muted" id="dlNote"></p>
+  </div>
+  <p class="muted"><a href="/">back to TOTR</a></p>
+</main>
+{{FOOTER}}
+</div>
+<script>
+const mb = bytes =>
+  (bytes / 1048576 >= 10 ? Math.round(bytes / 1048576) : (bytes / 1048576).toFixed(1)) + ' MB';
+// Which kind of device is this? (The page only reorders and explains; every installer is still
+// listed.)
+const device = (() => {
+  const ua = navigator.userAgent || '';
+  if (/android/i.test(ua)) return 'android';
+  if (/iphone|ipad|ipod/i.test(ua)) return 'ios';
+  if (/windows/i.test(ua)) return 'win';
+  if (/macintosh|mac os/i.test(ua)) return 'mac';
+  if (/linux|x11|cros/i.test(ua)) return 'linux';
+  return '';
+})();
+const NAMES = {
+  android: 'an Android phone or tablet',
+  ios: 'an iPhone or iPad',
+  win: 'Windows',
+  mac: 'a Mac',
+  linux: 'Linux',
+};
+// What to do, in order, for each kind of device. `cert` is the server's certificate authority (or
+// null): a server with its own authority makes a new device's browser warn until the device is told
+// to trust it, and the person should compare the code below with the one on the server's Admin page
+// (Updates > This server) before trusting.
+function stepsFor(kind, cert, app) {
+  const out = [];
+  const certStep = how =>
+    cert &&
+    out.push(
+      `If your browser warns that the connection is not private, this server uses its own certificate authority. Download its certificate (the link under these steps), check that its code is ${cert.fingerprint} (the Admin page of the server shows the same code), then ${how}`,
+    );
+  if (kind === 'android') {
+    certStep(
+      'open Settings, search for "certificate", choose Install a certificate > CA certificate, and pick the file. The menu names differ a little between phones.',
+    );
+    out.push(
+      `Download the app below${app ? ` (${app.file})` : ''} and open it. When Android asks, allow installs from the browser you used. If your browser cannot open the file, try Chrome or copy it over by cable.`,
+    );
+    out.push(
+      'Open TOTR, type the server address if it asks (the address of this page), and sign in. After that the app updates itself.',
+    );
+  } else if (kind === 'win') {
+    certStep(
+      'open the file, choose Install Certificate, then Place all certificates in the following store > Trusted Root Certification Authorities.',
+    );
+    out.push(
+      `Get the installer below${app ? ` (${app.file})` : ''}. Windows may warn about an unknown publisher: that is because the installer is not signed. Copying it over yourself instead of downloading it in the browser avoids most of that.`,
+    );
+    out.push(
+      'Run it, open TOTR, type the server address if it asks (the address of this page), and sign in. After that the app updates itself.',
+    );
+  } else if (kind === 'linux') {
+    certStep(
+      "add it to your browser (Settings > Privacy and security > Certificates > Authorities > Import) so this page and the app's web view trust the server.",
+    );
+    out.push(
+      `Download the AppImage below${app ? ` (${app.file})` : ''}, make it executable (chmod +x) and run it.`,
+    );
+    out.push(
+      'Type the server address if it asks (the address of this page) and sign in. After that the app updates itself.',
+    );
+  } else if (kind === 'ios' || kind === 'mac') {
+    out.push(
+      `There is no TOTR app for ${NAMES[kind]} yet. You can use TOTR in the browser: sign in on the home page of this server.`,
+    );
+  }
+  return out;
+}
+(async () => {
+  const t = document.getElementById('dlTable'),
+    note = document.getElementById('dlNote');
+  try {
+    const r = await fetch('/api/downloads');
+    if (!r.ok) throw new Error();
+    const data = await r.json();
+    // the one for this device first, the rest keep their order
+    const apps = data.apps
+      .slice()
+      .sort((a, b) => (b.platform === device) - (a.platform === device));
+    for (const a of apps) {
+      const tr = document.createElement('tr'),
+        what = el('td');
+      if (a.url) {
+        const link = el('a', null, a.file);
+        link.href = a.url;
+        link.download = a.file;
+        what.append(
+          link,
+          el('span', 'muted', `  version ${a.version} · ${mb(a.size)} · ${a.updated.slice(0, 10)}`),
+        );
+      } else what.append(el('span', 'warn', 'not available yet'));
+      tr.append(el('td', null, a.platform === device ? a.label + ' (this device)' : a.label), what);
+      const how = document.createElement('tr');
+      how.append(el('td'), el('td', 'muted', a.note));
+      t.append(tr, how);
+    }
+    if (NAMES[device]) {
+      const h = document.getElementById('forYou');
+      h.textContent = `You are on ${NAMES[device]}`;
+      h.hidden = false;
+      const list = document.getElementById('steps');
+      for (const text of stepsFor(
+        device,
+        data.certificate,
+        data.apps.find(a => a.platform === device && a.url),
+      ))
+        list.append(el('li', null, text));
+      list.hidden = !list.children.length;
+      if (data.certificate && device !== 'ios' && device !== 'mac') {
+        const c = el('a', null, "This server's certificate (the authority only, no key)");
+        c.href = data.certificate.url;
+        c.download = 'totr-ca.pem';
+        const p = el('p', 'muted', 'Code to compare: ' + data.certificate.fingerprint + '   ');
+        p.append(c);
+        list.after(p);
+      }
+    }
+  } catch {
+    note.textContent = 'Could not load the download list.';
+  }
+})();
+</script>
+</body>
+</html>
